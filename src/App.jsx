@@ -25535,14 +25535,14 @@ function App() {
       if (selectedHost) {
         try {
           attachPlayCoreScriptToSelection({ script, source: script.source, targetIds: [selectedHost.id] });
-          setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}” in this frame.`, "success");
+          setPlayCoreLiveStatus(`Loaded Underscores example “${example.name}” in this frame.`, "success");
           return;
         } catch (error) {
           setPlayCoreLiveStatus(error.message || `Loaded “${example.name}” in the editor.`, "info");
           return;
         }
       }
-      setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}”. Select a frame and press Run to attach it.`, "success");
+      setPlayCoreLiveStatus(`Loaded Underscores example “${example.name}”. Select a frame and press Run to attach it.`, "success");
     };
     return <div className="iannix-properties iannix-script-pane p5-script-pane">
       <p className="p5-script-status">Play Core programs render ASCII cells in a Underscores frame. Use <code>@param</code> with <code>__.params</code>; <code>__.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
@@ -25588,7 +25588,7 @@ function App() {
           <option value="">— Play Core draft —</option>
           {playCoreScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
         </optgroup>
-        <optgroup label="Original play.core examples">
+        <optgroup label="Underscores examples">
           {PLAY_CORE_EXAMPLES.map(example => <option key={example.id} value={`example:${example.id}`}>{example.category} · {example.name}</option>)}
         </optgroup>
       </select>}

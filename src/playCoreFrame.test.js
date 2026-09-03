@@ -101,7 +101,7 @@ test("normalizes a persisted Play Core working-file catalog", () => {
   });
 });
 
-test("all bundled original play.core examples compile against the portable module registry", () => {
+test("all bundled Underscores examples compile against the portable module registry", () => {
   assert.ok(PLAY_CORE_EXAMPLES.length >= 10);
   PLAY_CORE_EXAMPLES.forEach(example => {
     assert.doesNotMatch(example.source, /\bunderscores\b/);

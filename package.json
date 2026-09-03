@@ -1,6 +1,7 @@
 {
   "name": "underscores",
   "private": true,
+  "license": "MIT",
   "version": "0.0.0",
   "type": "module",
   "scripts": {
@@ -8,8 +9,10 @@
     "build": "node scripts/patch-excalidraw.js && vite build",
     "build:single": "node scripts/patch-excalidraw.js && BUILD_SINGLE=true vite build",
     "build:students": "node scripts/patch-excalidraw.js && PUBLIC_SAFE_BUILD=true BUILD_SINGLE=true vite build && node scripts/assert-student-bundle.js",
+    "build:demo": "node scripts/patch-excalidraw.js && DEMO_BUILD=true BUILD_SINGLE=true vite build",
     "deploy": "node scripts/assert-strudel-release-gate.js && npm run build:single && gh-pages -d dist --dotfiles",
     "deploy:students": "npm run build:students && gh-pages -d dist --dotfiles",
+    "deploy:demo": "node scripts/assert-demo-release-gate.js && npm run build:demo && gh-pages -d dist --dotfiles",
     "release:check": "node scripts/assert-strudel-release-gate.js",
     "lint": "oxlint",
     "test": "node --test src/*.test.js",

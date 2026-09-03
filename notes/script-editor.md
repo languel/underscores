@@ -85,11 +85,10 @@ transformable like a p5 host.
 
 Play Core also uses the same local working-file model as p5. The selector exposes saved programs
 from `underscores_play_core_scripts`; Save, Duplicate, New, Import, and Delete act on that catalog.
-Its separate **Original play.core examples** group provides a curated local collection adapted from
-the upstream Apache-2.0 repository. Choosing an example creates an ordinary editable saved
-Underscores program, so it can be modified, renamed, duplicated, and attached without a network
-dependency. Camera and canvas examples are intentionally held back until those upstream modules
-have equivalent portable Underscores implementations.
+Its separate **Underscores examples** group provides original local teaching programs for the
+Play Core-style lifecycle. Choosing an example creates an ordinary editable saved Underscores
+program, so it can be modified, renamed, duplicated, and attached without a network dependency.
+The examples are authored for this runner and do not copy upstream program sources.
 Hosts retain a `scriptId`, so saving the selected program recompiles every linked host while an
 unsaved draft remains local until it is saved or attached.
 

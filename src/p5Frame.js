@@ -426,32 +426,34 @@ function draw() {
 }`,
   }),
   Object.freeze({
-    id: "ten-print",
-    name: "10 PRINT",
+    id: "diagonal-garden",
+    name: "Diagonal garden",
     mode: "global",
-    source: `// 10 PRINT, adapted for a p5 frame. Press R to redraw.
+    source: `// Underscores-authored diagonal garden. Press R to reseed.
 const cell = 18;
+let seed = 1;
 
 function setup() {
   createCanvas(__.element.width, __.element.height);
   noLoop();
-  redrawPattern();
+  drawGarden();
 }
 
-function redrawPattern() {
+function drawGarden() {
   background(18);
   stroke(220);
   strokeWeight(2);
   for (let y = 0; y < height; y += cell) {
     for (let x = 0; x < width; x += cell) {
-      if (random() < 0.5) line(x, y, x + cell, y + cell);
+      const value = Math.sin((x + seed * 31) * 0.17) + Math.cos((y - seed * 17) * 0.13);
+      if (value > 0) line(x, y, x + cell, y + cell);
       else line(x + cell, y, x, y + cell);
     }
   }
 }
 
 function keyPressed() {
-  if (key === "r" || key === "R") redrawPattern();
+  if (key === "r" || key === "R") { seed += 1; drawGarden(); }
 }`,
   }),
   Object.freeze({

@@ -1,23 +1,63 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { listMediaFeatureDefinitions } from "./mediaLandmarkOntology.js";
+import { HAND_CONNECTIONS, POSE_CONNECTIONS, listMediaFeatureDefinitions, resolveMediaFeatureDefinition } from "./mediaLandmarkOntology.js";
 
-const MAP_ASSET = "/media/mediamime-body-map-detached-hands-large.svg";
-const DEFAULT_VIEW_BOX = Object.freeze({ x: -316.4, y: 0, width: 1232.8, height: 1251 });
+// Draw a compact semantic map from the ontology instead of bundling a copied
+// third-party illustration. The picker remains useful even when offline and
+// its points always use the canonical feature ids.
+const DEFAULT_VIEW_BOX = Object.freeze({ x: 0, y: 0, width: 1000, height: 900 });
 const VISUAL_MODES = Object.freeze([
   { id: "all", label: "All", viewBox: DEFAULT_VIEW_BOX },
-  { id: "pose", label: "Pose", viewBox: Object.freeze({ x: 50, y: 440, width: 500, height: 811 }) },
-  { id: "hands", label: "Hands", viewBox: Object.freeze({ x: -210, y: 320, width: 1020, height: 430 }) },
-  { id: "face", label: "Face", viewBox: Object.freeze({ x: 80, y: 0, width: 440, height: 440 }) },
+  { id: "pose", label: "Pose", viewBox: Object.freeze({ x: 285, y: 210, width: 430, height: 650 }) },
+  { id: "hands", label: "Hands", viewBox: Object.freeze({ x: 0, y: 300, width: 1000, height: 420 }) },
+  { id: "face", label: "Face", viewBox: Object.freeze({ x: 300, y: 20, width: 400, height: 350 }) },
 ]);
 
-const featureForDiagramNode = (definitions, title) => {
-  const match = /^(pose|face|handL|handR)\s+(\d+):/i.exec(title || "");
-  if (!match) return null;
-  const [, sourceFamily, indexText] = match;
-  const family = sourceFamily === "handL" ? "left_hand" : sourceFamily === "handR" ? "right_hand" : sourceFamily.toLowerCase();
-  const index = Number(indexText);
-  if (family === "face" && index >= 0 && index <= 477) return `face.${index}`;
-  return definitions.find(definition => definition.family === family && definition.index === index)?.id || null;
+const POSE_NAMES = Object.freeze([
+  "nose", "left_eye_inner", "left_eye", "left_eye_outer", "right_eye_inner", "right_eye", "right_eye_outer", "left_ear", "right_ear", "mouth_left", "mouth_right",
+  "left_shoulder", "right_shoulder", "left_elbow", "right_elbow", "left_wrist", "right_wrist", "left_pinky", "right_pinky", "left_index", "right_index", "left_thumb", "right_thumb",
+  "left_hip", "right_hip", "left_knee", "right_knee", "left_ankle", "right_ankle", "left_heel", "right_heel", "left_foot_index", "right_foot_index",
+]);
+const HAND_NAMES = Object.freeze([
+  "wrist", "thumb_cmc", "thumb_mcp", "thumb_ip", "thumb_tip", "index_finger_mcp", "index_finger_pip", "index_finger_dip", "index_finger_tip", "middle_finger_mcp", "middle_finger_pip", "middle_finger_dip", "middle_finger_tip", "ring_finger_mcp", "ring_finger_pip", "ring_finger_dip", "ring_finger_tip", "pinky_mcp", "pinky_pip", "pinky_dip", "pinky_tip",
+]);
+const POSE_LAYOUT = Object.freeze([
+  [500, 110], [475, 120], [488, 120], [501, 120], [512, 120], [525, 120], [538, 120], [458, 145], [542, 145], [485, 165], [515, 165],
+  [420, 250], [580, 250], [360, 360], [640, 360], [300, 470], [700, 470], [265, 490], [735, 490], [250, 540], [750, 540], [275, 565], [725, 565],
+  [450, 470], [550, 470], [410, 610], [590, 610], [380, 760], [620, 760], [355, 805], [645, 805], [350, 850], [650, 850],
+]);
+
+const handPoint = (originX, originY, index) => {
+  if (index === 0) return [originX, originY];
+  const finger = Math.floor((index - 1) / 4);
+  const step = (index - 1) % 4;
+  const spread = [-64, -32, 0, 32, 62][finger] || 0;
+  const direction = originX < 500 ? -1 : 1;
+  return [originX + spread * direction, originY - 16 - step * 25 - Math.abs(spread) * 0.08];
+};
+
+const featureDiagramNodes = definitions => definitions.flatMap(definition => {
+  if (definition.kind !== "point") return [];
+  const [x, y] = definition.family === "pose"
+    ? (POSE_LAYOUT[definition.index] || [500, 450])
+    : definition.family === "left_hand"
+      ? handPoint(145, 540, definition.index)
+      : definition.family === "right_hand"
+        ? handPoint(855, 540, definition.index)
+        : [500 + Math.cos(definition.index * 0.37) * (70 + (definition.index % 7) * 5), 155 + Math.sin(definition.index * 0.37) * (90 + (definition.index % 5) * 3)];
+  return [{ id: definition.id, x, y, family: definition.family }];
+});
+
+const featureDiagramLines = nodes => {
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const line = (family, from, to) => {
+    const left = byId.get(`${family}.${family === "pose" ? POSE_NAMES[from] : HAND_NAMES[from]}`);
+    const right = byId.get(`${family}.${family === "pose" ? POSE_NAMES[to] : HAND_NAMES[to]}`);
+    return left && right ? { x1: left.x, y1: left.y, x2: right.x, y2: right.y, family } : null;
+  };
+  return [
+    ...POSE_CONNECTIONS.map(([from, to]) => line("pose", from, to)),
+    ...HAND_CONNECTIONS.flatMap(([from, to]) => [line("left_hand", from, to), line("right_hand", from, to)]),
+  ].filter(Boolean);
 };
 
 const pointInSvg = (svg, event) => {
@@ -30,37 +70,16 @@ export default function MediaVisualFeaturePicker({ selectedIds = [], focusFeatur
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const definitions = useMemo(() => listMediaFeatureDefinitions(), []);
-  const [assetUrl, setAssetUrl] = useState("");
   const [modeState, setModeState] = useState("all");
   const mode = controlledMode || modeState;
   const modeDefinition = VISUAL_MODES.find(candidate => candidate.id === mode) || VISUAL_MODES[0];
   const [viewBox, setViewBox] = useState(modeDefinition.viewBox);
-  const [nodes, setNodes] = useState([]);
+  const nodes = useMemo(() => featureDiagramNodes([
+    ...definitions,
+    ...Array.from({ length: 478 }, (_, index) => resolveMediaFeatureDefinition(`face.${index}`)),
+  ].filter(Boolean)), [definitions]);
+  const lines = useMemo(() => featureDiagramLines(nodes), [nodes]);
   const [selectionBox, setSelectionBox] = useState(null);
-
-  useEffect(() => {
-    let disposed = false;
-    let url = "";
-    fetch(MAP_ASSET).then(response => response.text()).then(source => {
-      if (disposed) return;
-      const document = new DOMParser().parseFromString(source, "image/svg+xml");
-      document.querySelector("svg > rect")?.remove();
-      const parsedNodes = [...document.querySelectorAll("circle")].map(circle => ({
-        id: featureForDiagramNode(definitions, circle.querySelector("title")?.textContent),
-        x: Number(circle.getAttribute("cx")),
-        y: Number(circle.getAttribute("cy")),
-      })).filter(node => node.id && Number.isFinite(node.x) && Number.isFinite(node.y));
-      url = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(document.documentElement)], { type: "image/svg+xml" }));
-      setNodes(parsedNodes);
-      setAssetUrl(url);
-    }).catch(() => {
-      if (!disposed) setAssetUrl(MAP_ASSET);
-    });
-    return () => {
-      disposed = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [definitions]);
 
   const changeMode = nextMode => {
     if (!VISUAL_MODES.some(candidate => candidate.id === nextMode)) return;
@@ -165,7 +184,10 @@ export default function MediaVisualFeaturePicker({ selectedIds = [], focusFeatur
       onPointerCancel={endPointer}
       onWheel={zoomAtPointer}
     >
-      {assetUrl && <image href={assetUrl} x={DEFAULT_VIEW_BOX.x} y={DEFAULT_VIEW_BOX.y} width={DEFAULT_VIEW_BOX.width} height={DEFAULT_VIEW_BOX.height} pointerEvents="none" />}
+      <rect x={DEFAULT_VIEW_BOX.x} y={DEFAULT_VIEW_BOX.y} width={DEFAULT_VIEW_BOX.width} height={DEFAULT_VIEW_BOX.height} fill="var(--color-background, #151519)" pointerEvents="none" />
+      <g className="media-visual-feature-map-lines" pointerEvents="none">
+        {lines.map((line, index) => <line key={`${line.family}-${index}`} x1={line.x1} y1={line.y1} x2={line.x2} y2={line.y2} />)}
+      </g>
       <rect x={viewBox.x} y={viewBox.y} width={viewBox.width} height={viewBox.height} fill="transparent" />
       {nodes.map(node => <circle
         key={node.id}
@@ -173,6 +195,7 @@ export default function MediaVisualFeaturePicker({ selectedIds = [], focusFeatur
         cy={node.y}
         r={11}
         className={`media-visual-feature-hit ${selectedIds.includes(node.id) ? "is-selected" : ""}`}
+        aria-label={node.id}
         onPointerDown={event => event.stopPropagation()}
         onClick={event => {
           event.stopPropagation();

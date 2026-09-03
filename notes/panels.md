@@ -85,7 +85,7 @@ Script editing is a standalone dockable concern rather than a tab embedded in a 
 - **Brush / modifier** retains the brush catalog, JavaScript editor, compilation feedback, shared `@param` controls, Run/apply-to-selection, Save, Duplicate, New, Import, Delete, and attached-modifier editing.
 - **IanniX** retains the trusted script catalog, editable names, `ask()` / `@param` controls, Run, Save, Duplicate, New, Import, Delete, and one-line IanniX command execution.
 - **p5 sketch** retains its local sketch catalog and trusted live-frame runtime.
-- **Play Core** retains its local ASCII-program catalog, offline module registry, original examples, `@param` controls, and trusted live-frame runtime.
+- **Play Core** retains its local ASCII-program catalog, offline module registry, Underscores-authored examples, `@param` controls, and trusted live-frame runtime.
 - **SVG** retains its local document catalog, source editor, validation, Play-to-canvas route, native-selection conversion, and SVG import.
 
 The type selector changes the catalog, execution environment, and available actions together. `src/scriptTypes.js` is the registry boundary for future adapters; each adapter continues to own its existing persistence and runtime semantics. Opening a modifier's edit action selects Brush / modifier mode. Importing a trusted `.iannix` file selects IanniX mode. `Ctrl+Opt+B`, `/script`, the main menu, and the command palette open the independent panel.

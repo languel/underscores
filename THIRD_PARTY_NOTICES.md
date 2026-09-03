@@ -1,13 +1,25 @@
 # Third-party notices
 
-## Orca
+Underscores' original source is released under the MIT License in [`LICENSE`](LICENSE).
+This file records third-party code, libraries, fonts, and reference material used by the
+application. Those components remain under their own licenses; the MIT license for Underscores
+does not relicense them. The complete dependency graph and exact versions are recorded in
+[`package-lock.json`](package-lock.json).
 
-The native Orca grid interaction and operator model in `src/orcaEngine.js` and
-`src/OrcaNode.jsx` is adapted from [Orca by Hundredrabbits](https://github.com/hundredrabbits/Orca).
+## Adapted or informed source
 
-Copyright (c) 2017 Hundredrabbits
+### Excalidraw
 
-Licensed under the MIT License:
+Underscores uses [`@excalidraw/excalidraw`](https://github.com/excalidraw/excalidraw), version
+0.17.6, under the MIT License. `src/collaboration/reconciliation.js` contains a small adaptation
+of Excalidraw's MIT-licensed collaboration reconciler and retains the same license boundary.
+
+### Orca
+
+The native Orca grid interaction and operator model in `src/orcaEngine.js` and `src/OrcaNode.jsx`
+is adapted from [Orca by Hundredrabbits](https://github.com/hundredrabbits/Orca).
+
+Copyright (c) 2017 Hundredrabbits. Licensed under the MIT License:
 
 > Permission is hereby granted, free of charge, to any person obtaining a copy
 > of this software and associated documentation files (the "Software"), to deal
@@ -27,32 +39,77 @@ Licensed under the MIT License:
 > OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 > SOFTWARE.
 
-## Fira Mono, Inter, and Monaspace fonts
+### Play Core compatibility
 
-The Livecode Node typography bundles Fira Mono via `@fontsource/fira-mono` (copyright Google Inc.)
-and Inter via `@fontsource/inter` (copyright 2016 The Inter Project Authors). Both font packages
-are included at the pinned versions in `package.json` and licensed under the SIL Open Font License,
-Version 1.1. Their complete upstream license texts are retained in the corresponding installed
-packages at `node_modules/@fontsource/fira-mono/LICENSE` and `node_modules/@fontsource/inter/LICENSE`;
-source distributions and public release artifacts must preserve that notice and license.
+The local Play Core-style runner and utility modules in `src/playCoreFrame.js` and
+`src/playCoreModules.js` implement a small compatible lifecycle and module surface informed by
+[`ertdfgcvb/play.core`](https://github.com/ertdfgcvb/play.core), Apache-2.0. No upstream program
+sources are bundled: the selectable Play Core examples in `src/playCoreExamples.js` are authored
+for Underscores. The upstream project remains credited here because its public contract is the
+compatibility reference.
 
-The Monaspace families Argon, Krypton, Neon, Radon, and Xenon are bundled through the corresponding
-`@fontsource/monaspace-*` packages for the normal local/internal build. Monaspace is Copyright (c)
-2023 GitHub, Inc. and is licensed under the SIL Open Font License, Version 1.1. The complete
-upstream license texts are retained in each installed package's `LICENSE` file; source distributions
-must preserve the relevant notices and license. The student/public-safe build deliberately omits
-these packages until the internal asset audit is complete; see `notes/student-release.md`.
+### Looom Tools
 
-SIL Open Font License, Version 1.1 — 26 February 2007
+The SVG timing/editor design in `notes/svg.md` was informed by the public
+[`mattdesl/looom-tools`](https://github.com/mattdesl/looom-tools) project, MIT licensed. No
+Looom source is copied into the runtime.
 
-> Permission is hereby granted, free of charge, to any person obtaining a copy of the Font Software,
-> to use, study, copy, merge, embed, modify, redistribute, and sell modified and unmodified copies
-> of the Font Software, subject to the conditions of the SIL Open Font License, Version 1.1.
->
-> Neither the Font Software nor any of its individual components, in Original or Modified Versions,
-> may be sold by itself. Original or Modified Versions may be bundled, redistributed, and/or sold
-> with software when each copy contains the relevant copyright notice and license. Modified versions
-> must not use reserved font names without permission and must remain under this license.
+## Runtime libraries and direct dependencies
 
-The authoritative full text is included with the above font packages and is also available from the
-[SIL Open Font License](https://openfontlicense.org/).
+The following direct runtime dependencies are included in the locked application build. Names and
+versions below match `package.json` and `package-lock.json`; transitive dependencies are covered
+by the same lockfile inventory.
+
+### MIT
+
+React and React DOM; Excalidraw; Three.js; CodeMirror (`@codemirror/*`); Lezer highlighting;
+`@frankhommers/opencode-yolo`; `css-tree`; `fflate`; `gifenc`; `gifuct-js`; `jzz`;
+`jzz-synth-tiny`; KaTeX; Marked; `svg-pathdata`; `transformation-matrix`; and Trystero.
+
+The development and release toolchain is also MIT licensed: `@types/react`, `@types/react-dom`,
+`@vitejs/plugin-react`, `gh-pages`, `oxlint`, `vite`, and `vite-plugin-singlefile`.
+
+### Apache-2.0
+
+`@dimforge/rapier2d-deterministic-compat` (Rapier deterministic physics). The lockfile also
+records Apache-2.0 transitive packages such as `webmidi` and `@ai-sdk/provider`.
+
+### LGPL-2.1
+
+`p5` and `p5-legacy` are distributed under the GNU Lesser General Public License, version 2.1.
+Their package notices and license text must remain available in source and release artifacts.
+
+### AGPL-3.0-or-later
+
+The native Strudel packages (`@strudel/codemirror`, `core`, `draw`, `mini`, `mondo`, `soundfonts`,
+`tonal`, `transpiler`, `webaudio`, and `xen`) and their Strudel runtime dependencies are AGPL-3.0-or-later.
+The Strudel release gate in `scripts/assert-strudel-release-gate.js` documents the corresponding
+source-offer and attribution obligations. A public deployment must not bypass that gate.
+
+### SIL Open Font License 1.1
+
+`@fontsource/fira-mono` (Fira Mono, copyright Google Inc.), `@fontsource/inter` (Inter, copyright
+2016 The Inter Project Authors), and the `@fontsource/monaspace-*` families (Monaspace, copyright
+2023 GitHub, Inc.) are licensed under the SIL Open Font License, version 1.1. The font package
+license files are retained in the installed packages and must accompany redistributions.
+
+### Other locked licenses
+
+The dependency lockfile also contains transitive packages under ISC, BSD-2-Clause, BSD-3-Clause,
+0BSD, CC0-1.0, SGI-B-2.0, (MIT AND Zlib), and (AFL-2.1 OR BSD-3-Clause). Their package-level
+notices and license files are authoritative and are included by the normal npm source/build
+workflow.
+
+## MediaPipe runtime
+
+MediaPipe Holistic is loaded on demand from the public browser distribution at
+[`cdn.jsdelivr.net/npm/@mediapipe/holistic`](https://www.npmjs.com/package/@mediapipe/holistic). It
+is an Apache-2.0 project. The application does not bundle model weights or camera recordings;
+users supply their own local camera/media input.
+
+## Fonts: SIL Open Font License 1.1 summary
+
+The OFL permits use, embedding, modification, and redistribution of the font software when the
+copyright and license notices are preserved. Font software may not be sold by itself, and modified
+versions must respect reserved font names. The complete license text is supplied by each
+`@fontsource` package.

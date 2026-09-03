@@ -112,7 +112,7 @@ samples, pixels, or device/socket state. See
   timing support.
 - Native scene groups and score groups in the Outliner: selectable group rows, group visibility,
   locking, deletion, drag/reparenting, and batch actions with Option-click.
-- Play Core ASCII frames with offline module imports, original examples, `@param` controls, and the
+- Play Core ASCII frames with offline module imports, Underscores-authored examples, `@param` controls, and the
   shared `__` script bridge; `underscores` remains a compatibility alias.
 - First-class Livecode Nodes: self-contained transparent scene hosts with one canonical source,
   shared Script-panel/canvas editing, node typography, and concurrent p5, Play Core, Strudel,

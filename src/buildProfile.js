@@ -2,3 +2,7 @@
 // browser bundle; keeping this in one module makes the public/student profile
 // explicit without changing the normal local development experience.
 export const isPublicSafeBuild = import.meta.env.VITE_PUBLIC_SAFE_BUILD === "true";
+// The internal demo profile currently includes the full runtime. This marker
+// leaves a compile-time seam for the smaller feature subset we will define
+// later without changing the public-safe profile.
+export const isDemoBuild = import.meta.env.VITE_DEMO_BUILD === "true";

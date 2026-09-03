@@ -106,7 +106,7 @@ The standalone **Script** panel is a code editor, not a second drawing mode. Cho
 
 ## Play Core workflow
 
-1. Open **Script** and choose **Play Core**. The program selector is a local working-file catalog: choose a saved program, then use **Save**, **Duplicate**, **New**, **Import**, or **Delete** just as in the p5 editor. Its separate **Original play.core examples** group provides local, editable starters adapted from [ertdfgcvb/play.core](https://github.com/ertdfgcvb/play.core); choosing one creates an ordinary saved Underscores program. Saving a linked program updates every Play Core host using that file. Press Play with no selection to create a 640 × 360 frame; select a rectangle or frame first to attach the selected program in place. The host border becomes transparent, matching p5 and SVG script frames.
+1. Open **Script** and choose **Play Core**. The program selector is a local working-file catalog: choose a saved program, then use **Save**, **Duplicate**, **New**, **Import**, or **Delete** just as in the p5 editor. Its separate **Underscores examples** group provides original, local starters for the Play Core-style lifecycle; choosing one creates an ordinary saved Underscores program. Saving a linked program updates every Play Core host using that file. Press Play with no selection to create a 640 × 360 frame; select a rectangle or frame first to attach the selected program in place. The host border becomes transparent, matching p5 and SVG script frames.
 2. Selecting exactly one Play Core host loads that host’s canonical source and saved-file identity into the editor. Selecting a different file from the dropdown attaches it to that host immediately; active valid typing is never replaced by a stale canvas snapshot.
 3. Programs use the play.core lifecycle: `export const settings`, then optional `boot`, `pre`, `main`, `post`, `pointerMove`, `pointerDown`, and `pointerUp` functions. `main({ x, y, index }, context, cursor, buffer)` returns a character or a cell object for each ASCII cell. `context` includes time, frame, cell dimensions, host dimensions, and settings; `cursor` is in cell coordinates and exposes its previous state through `cursor.p`.
 4. Declare `// @param threshold = 0.55 (0..1, step: 0.01)` to create a persistent host control. Read it at runtime through `__.params.threshold`. Object parameters use `(object)` and resolve to a live Underscores canvas object.
@@ -199,9 +199,28 @@ the Strudel licensing gate until its corresponding-source and notice review is
 complete. See [student/public-safe release](notes/student-release.md) and
 [livecode licensing](notes/livecode-licensing.md).
 
+For controlled internal demo testing with native Strudel included, use
+`npm run build:demo`, or explicitly publish with
+`UNDERSCORES_AGPL_COMPLIANCE=acknowledged npm run deploy:demo`. The demo profile
+is separate from the student profile so its future feature subset can evolve
+without changing the public-safe artifact. This is an internal opt-in and does
+not replace the full public-release compliance review. The deployment gate
+also reads this variable from an ignored local `.env` or `.env.local` file, so
+you can copy `.env.example` to `.env`, set the literal value `acknowledged`,
+and run `npm run deploy:demo` without exporting it in every shell.
+
 Modifier-stack, score-engine, command, session, macro, input, IanniX-import, and automation behavior are covered by Node's built-in test runner. See `notes/modifier-stack.md`, `notes/iannix.md`, and `notes/history-automation.md` for their data models and implementation invariants.
 
 The IanniX performance path is intentionally fidelity-first: imported geometry remains adaptively sampled, while repeated metrics, trigger preparation, collision broad-phase checks, and UI commits are cached or coalesced. See the performance checkpoint in `notes/iannix.md` for profiling results and future worker/bundle-splitting directions.
+
+## Licensing
+
+Underscores-authored source is released under the MIT License; see [LICENSE](LICENSE). The app
+also ships and loads third-party components that retain their own terms, including AGPL-3.0-or-later
+Strudel packages, LGPL-2.1 p5 packages, Apache-2.0 Rapier and MediaPipe components, and OFL-1.1
+fonts. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the attribution inventory and
+release obligations. Examples in this repository are authored for Underscores; remote model URLs
+used by demos are references and their providers' terms still apply.
 
 ## Command Palette Commands
 

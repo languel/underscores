@@ -139,9 +139,8 @@ Selecting a feature in either place should:
 - optionally append a bounded trace;
 - make it available to a new mapping or processor.
 
-An illustrative semantic body map is included below. It is a UI aid, not the source of ontology truth.
-
-![Semantic body and landmark map](media/mediamime-body-map-large.svg)
+The in-app visual picker renders an ontology-generated body and landmark map. It is a UI aid, not the
+source of ontology truth, and no external landmark illustration is required at runtime.
 
 ### 4.4 Inputs and processors
 

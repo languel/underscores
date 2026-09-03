@@ -504,14 +504,9 @@ inactive or unavailable bindings remain dormant.
 
 ## Reference body maps
 
-The original MediaMime diagrams are copied unchanged as explanatory references:
-
-- [attached hands](media/mediamime-body-map-large.svg) — 176 labeled nodes;
-- [detached hands](media/mediamime-body-map-detached-hands-large.svg) — 193 labeled nodes,
-  including all 33 pose points.
-
-Their SVG titles are labels, not runtime ids or schemas. This slice does not parse them or make them
-selectable; a later map phase can generate annotated ids from the canonical ontology.
+The in-app visual picker draws a compact map directly from the canonical ontology at runtime. It
+does not bundle or parse a third-party body-map illustration, so the point ids shown in the picker
+always come from `mediaLandmarkOntology.js` and remain aligned with the semantic stream contract.
 
 Gaze remains a future calibrated derived signal rather than a direct interpretation of iris
 position. Palm openness, string-plucking, zones, MIDI actions, constraints, and the broader mapping
