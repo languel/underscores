@@ -1,24 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import NumericInput from "./NumericInput.jsx";
 import { HELP_TOPICS } from "./helpTopics.js";
-import { filterDocumentationEntries, normalizeDocumentationFontSize } from "./documentationPanelModel.js";
+import { DOCUMENTATION_SECTIONS, documentationTopicSection, filterDocumentationEntries, normalizeDocumentationFontSize } from "./documentationPanelModel.js";
 
 const DOCUMENTATION_FONT_SIZE_KEY = "underscores_documentation_font_size";
 
-const topicSection = topic => {
-  if (topic.id === "workspace-interface") return "Workspace";
-  if (topic.id.startsWith("physics-")) return "Physics";
-  if (topic.id === "score") return "Score";
-  if (topic.id === "media-streams") return "Media";
-  if (topic.id === "panel-outliner" || topic.id === "panel-playlist" || topic.id === "panel-properties" || topic.id === "panel-settings" || topic.id === "panel-info" || topic.id === "panel-documentation") return "Workspace";
-  if (topic.id === "panel-score" || topic.id === "panel-timeline") return "Score";
-  if (topic.id === "panel-media" || topic.id === "panel-inputs" || topic.id === "panel-holistic" || topic.id === "panel-mapping") return "Media";
-  if (topic.id === "panel-physics" || topic.id === "panel-brush" || topic.id === "panel-synth" || topic.id === "panel-mixer") return "Systems";
-  if (topic.id === "panel-multiplayer" || topic.id === "panel-assistant" || topic.id === "panel-history" || topic.id === "panel-walkthrough" || topic.id === "panel-console") return "Workflow";
-  return "Scripting";
-};
-
-const topicEntries = HELP_TOPICS.map(topic => ({ ...topic, type: "reference", category: "Reference", section: topicSection(topic) }));
+const topicEntries = HELP_TOPICS.map(topic => ({ ...topic, type: "reference", category: "Reference", section: documentationTopicSection(topic) }));
 
 const entryBody = entry => entry.body || entry.summary || "";
 
@@ -135,7 +122,7 @@ export default function DocumentationPanel({
     if (entry?.walkthroughId) onStartWalkthrough?.(entry.walkthroughId, { stepId: entry.stepId });
   };
 
-  const referenceSections = ["Workspace", "Scripting", "Physics", "Score", "Media", "Systems", "Workflow"]
+  const referenceSections = DOCUMENTATION_SECTIONS
     .map(section => ({ section, entries: referenceMatches.filter(entry => entry.section === section) }))
     .filter(group => group.entries.length > 0);
   const patchSections = [...new Set(patchMatches.map(entry => entry.category || "Help"))]

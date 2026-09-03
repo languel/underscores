@@ -43,9 +43,25 @@ Visible code demonstrations create a blank Livecode node with auto-update off, t
 
 Each run produces a local `underscores-walkthrough-run` JSON trace with cue execution, assertions, hints, skips, learner continuation, pace, and Keep/Restore outcome. Export redacts credentials, sensitive command arguments, and assistant/chat transcripts. There is no upload or training pipeline in v1.
 
+## First-run welcome
+
+A fresh visitor lands on an empty canvas with no panels open, so the first run offers an introduction rather than requiring the visitor to already know `/welcome`. `src/welcomeExperience.js` owns the decision and `src/WelcomeCard.jsx` renders it: a compact card on the panel surface listing the full tour, the Livecode, Physics, and Timeline lessons, **Browse documentation**, and **Start blank**.
+
+The offer is deliberately narrow. `shouldOfferWelcome` returns true only when the visitor has not dismissed it before, the canvas is empty, presentation mode is off, there is no `?scene=` reference, no saved patch was restored, and no walkthrough is already running. Reopening a saved patch, following a published scene link, joining a multiplayer room, or presenting are all deliberate arrivals and are never interrupted.
+
+Any answer retires the offer permanently in `underscores_welcome_seen_v1`, including simply starting to draw: while the card is visible a one-shot capture listener on the canvas dismisses it on the first pointer down. `help.welcome.show` (`/welcome screen`) brings it back, which is how a presenter resets between demonstrations without clearing local storage.
+
 ## Bundled onboarding
 
-The bundled **Welcome to Underscores** walkthrough introduces Underscores as an infinite creative computational canvas for performance, teaching, exploration, and research. It then introduces the blank canvas, command palette, core panels, Timeline and Info, visibly authored p5 and GLSL examples, explicit audio enablement, a compact audio/physics pendulum demonstration, and the final Keep/Restore decision. Run `/welcome` (or `/get_started`) to begin it. The welcome command is the first entry in an empty Command Palette, and its `walkthrough.welcome` ID is exposed to WebMCP through the shared command catalog. Info stays synchronized with the current control or walkthrough step, while Documentation provides the searchable learning library and follow-up help patches.
+The bundled library is onboarding plus one lesson for each priority area, in `src/walkthroughCatalog.js`:
+
+- **Welcome to Underscores** (`guided-onboarding-v1`) — canvas, command palette, core panels, Documentation, Timeline and Info, visibly authored p5 and GLSL examples, explicit audio enablement, a compact audio/physics pendulum demonstration, and the final Keep/Restore decision. Run `/welcome` (or `/get_started`).
+- **Livecode: your first program** (`livecode-first-program-v1`) — one p5 node grown from a blank source through `@param` declarations to transport-linked score time, then composed with a shader underlay.
+- **Physics: make a drawing sound** (`physics-first-instrument-v1`) — the Musical gas world, a collision mapping into the Expressive Synth, mapping formulas, the debug overlay, and an assertion that waits for the learner's own body.
+- **Timeline: give the patch time** (`timeline-arrangement-v1`) — the three display modes, a loop, a linked node, quantized launch, and arrangement clips, kept deliberately separate because learners conflate transport time, a node's clock, and a clip.
+- **Physics marionette** (`physics-marionette-study-v1`) — the longer case study.
+
+Three constraints keep these playable. A step's `focusTarget` must be a registered semantic target, or the walkthrough cursor silently freezes at the previous step's position; `app.commandPalette` resolves `#command-palette-input` first, since the live palette has no `role="dialog"` ancestor and no bare `.command-palette` class. An assertion step needs a hint, because the hint is the learner's recovery path. And a command that throws without a selection — `arrangement.clip.add` is the example — stays a learner action rather than an automated cue. The welcome command is the first entry in an empty Command Palette, and its `walkthrough.welcome` ID is exposed to WebMCP through the shared command catalog. Info stays synchronized with the current control or walkthrough step, while Documentation provides the searchable learning library and follow-up help patches.
 
 Documentation is a separate dockable panel (`/documentation`, `/docs`, or `/help`). It opens in the left dock by default, may move to the right, float, or join the bottom dock, and contains a persistent table of contents for reference topics and patch-based lessons. Its text-size control is stored locally, and Documentation keeps the compact **Getting started** shortcut at the top. Info stays focused on compact contextual summaries and links into Documentation rather than duplicating the full catalog.
 
@@ -55,7 +71,8 @@ Documentation is a separate dockable panel (`/documentation`, `/docs`, or `/help
 - `src/walkthroughTargets.js`: semantic target validation and registered UI adapters.
 - `src/WalkthroughOverlay.jsx`: cursor, narration, prompts, and learner controls.
 - `src/WalkthroughPanel.jsx`: browsing, playback, authoring, validation, and trace export.
-- `src/walkthroughCatalog.js`: onboarding and bundled help entries.
+- `src/walkthroughCatalog.js`: onboarding, the Livecode/Physics/Timeline lessons, the marionette case study, and bundled help entries.
+- `src/welcomeExperience.js` and `src/WelcomeCard.jsx`: the first-run offer and the rules that suppress it.
 - `src/DocumentationPanel.jsx`: searchable table of contents, help-patch actions, and locally persisted reading size.
 - `src/InfoPanel.jsx`: contextual hover, focus, and active-editor reference only.
 - `src/webmcp.js`: WebMCP discovery and control.

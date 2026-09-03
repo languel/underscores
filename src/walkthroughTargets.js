@@ -25,7 +25,9 @@ export const resolveWalkthroughTarget = (target, {
     return element ? { key, element } : null;
   }
   if (key === "app.commandPalette") {
-    const element = documentRef?.querySelector?.('[role="dialog"] input[placeholder*="command" i], .command-palette input, [data-walkthrough-target="app.commandPalette"]') || null;
+    // #command-palette-input is the live palette field; the remaining selectors
+    // keep older/alternate palette markup and explicit opt-in targets working.
+    const element = documentRef?.querySelector?.('#command-palette-input, .command-palette-card input, [role="dialog"] input[placeholder*="command" i], .command-palette input, [data-walkthrough-target="app.commandPalette"]') || null;
     return element ? { key, element } : null;
   }
   if (key === "editor.livecode") {

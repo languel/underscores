@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { filterDocumentationEntries, normalizeDocumentationFontSize } from "./documentationPanelModel.js";
+import { DOCUMENTATION_SECTIONS, documentationTopicSection, filterDocumentationEntries, normalizeDocumentationFontSize } from "./documentationPanelModel.js";
 import { HELP_TOPICS } from "./helpTopics.js";
 
 test("documentation font size remains within the readable control range", () => {
@@ -47,4 +47,62 @@ test("script quick-reference links resolve to one documentation page", () => {
 test("Livecode compositing guide is searchable by controls and Fluid emission", () => {
   assert.ok(filterDocumentationEntries(HELP_TOPICS, "livecode layer blend").some(entry => entry.id === "livecode-compositing"));
   assert.deepEqual(filterDocumentationEntries(HELP_TOPICS, "fluid emission geometry").map(entry => entry.id), ["livecode-compositing", "script-glsl"]);
+});
+
+test("every reference topic lands in a rendered table-of-contents section", () => {
+  const known = new Set(DOCUMENTATION_SECTIONS);
+  for (const topic of HELP_TOPICS) {
+    const section = documentationTopicSection(topic);
+    assert.ok(known.has(section), `${topic.id} maps to unlisted section ${section}`);
+  }
+  // A section the panel never renders would silently hide its pages.
+  const used = new Set(HELP_TOPICS.map(documentationTopicSection));
+  for (const section of DOCUMENTATION_SECTIONS) {
+    assert.ok(used.has(section), `section ${section} has no topics`);
+  }
+});
+
+test("Getting started leads the contents and covers the first-session path", () => {
+  assert.equal(DOCUMENTATION_SECTIONS[0], "Getting started");
+  const ids = HELP_TOPICS.filter(topic => documentationTopicSection(topic) === "Getting started").map(topic => topic.id);
+  assert.deepEqual(ids, [
+    "start-underscores",
+    "start-first-session",
+    "start-canvas",
+    "start-panels",
+    "start-commands",
+    "start-keyboard",
+    "start-patches",
+    "start-teaching",
+  ]);
+});
+
+test("the three priority areas each have a conceptual page set, not one placeholder", () => {
+  const bySection = section => HELP_TOPICS.filter(topic => documentationTopicSection(topic) === section);
+  for (const section of ["Livecode", "Physics", "Timeline"]) {
+    const topics = bySection(section);
+    assert.ok(topics.length >= 7, `${section} has only ${topics.length} pages`);
+    for (const topic of topics) {
+      // Placeholder pages were one or two sentences with no paragraph breaks.
+      assert.ok(topic.body.includes("\n\n"), `${topic.id} is still a single-paragraph stub`);
+      assert.ok(topic.body.length >= 400, `${topic.id} is too thin at ${topic.body.length} characters`);
+      assert.ok(topic.keywords.split(/\s+/).length >= 6, `${topic.id} needs searchable keywords`);
+    }
+  }
+});
+
+test("priority-area pages are reachable by the words a learner would type", () => {
+  const find = query => filterDocumentationEntries(HELP_TOPICS, query).map(entry => entry.id);
+  assert.ok(find("getting started first session").includes("start-first-session"));
+  assert.ok(find("livecode auto update keep last frame").includes("livecode-lifecycle"));
+  assert.ok(find("free linked clock quantize").includes("livecode-clock"));
+  assert.ok(find("physics collision layers matrix").includes("physics-layers"));
+  assert.ok(find("physics live pose reset apply").includes("physics-pose"));
+  assert.ok(find("timeline bar beat sixteenth tempo").includes("timeline-time"));
+  assert.ok(find("arrangement clip trim stretch").includes("timeline-clips"));
+});
+
+test("topic ids are unique so the contents cannot render a duplicate row", () => {
+  const ids = HELP_TOPICS.map(topic => topic.id);
+  assert.equal(new Set(ids).size, ids.length);
 });

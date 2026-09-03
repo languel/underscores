@@ -23,3 +23,22 @@ test("canvas element targets resolve through scene coordinates", () => {
   assert.equal(target.rect.left, 30);
   assert.equal(target.rect.top, 46);
 });
+
+test("the command palette target resolves against the live palette markup", () => {
+  // The palette input carries #command-palette-input inside .command-palette-card;
+  // it has no role="dialog" ancestor and no bare .command-palette class, so the
+  // resolver has to name the real id or the cursor never finds the field.
+  const seen = [];
+  const documentRef = {
+    querySelector: selector => {
+      seen.push(selector);
+      return selector.split(", ").some(part => part === "#command-palette-input")
+        ? { id: "command-palette-input" }
+        : null;
+    },
+  };
+  const target = resolveWalkthroughTarget("app.commandPalette", { documentRef });
+  assert.equal(target?.key, "app.commandPalette");
+  assert.equal(target?.element?.id, "command-palette-input");
+  assert.ok(seen[0].startsWith("#command-palette-input"));
+});

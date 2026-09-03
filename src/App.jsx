@@ -36,6 +36,8 @@ import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
 import WalkthroughPanel from "./WalkthroughPanel.jsx";
 import WalkthroughOverlay from "./WalkthroughOverlay.jsx";
+import WelcomeCard from "./WelcomeCard.jsx";
+import { readWelcomeDismissed, shouldOfferWelcome, writeWelcomeDismissed } from "./welcomeExperience.js";
 import FeedbackDialog, { useFeedbackDialog } from "./FeedbackDialog.jsx";
 import EventConsole from "./EventConsole.jsx";
 import { buildConsoleLiveStatus, changedConsoleStatusRows } from "./consoleStatus.js";
@@ -3505,6 +3507,19 @@ function App() {
   const [contextPromptPosition, setContextPromptPosition] = useState(null);
   const [satoriMode, setSatoriMode] = useState(true);
   const [presentationMode, setPresentationMode] = useState(() => localStorage.getItem("underscores_presentation_mode") === "true");
+  // A fresh visitor lands on an empty canvas with no panels open, so the first
+  // run offers the guided tours instead of requiring them to already know
+  // /welcome. Any action retires the offer permanently.
+  const [welcomeVisible, setWelcomeVisible] = useState(false);
+  const welcomeDismissedRef = useRef(readWelcomeDismissed());
+  const welcomeDecidedRef = useRef(false);
+  const dismissWelcome = useCallback(({ persist = true } = {}) => {
+    welcomeDecidedRef.current = true;
+    setWelcomeVisible(false);
+    if (!persist) return;
+    welcomeDismissedRef.current = true;
+    writeWelcomeDismissed();
+  }, []);
   const [zenMode, setZenMode] = useState(false);
   const [showToolbarHints, setShowToolbarHints] = useState(() => {
     const saved = localStorage.getItem("underscores_show_toolbar_hints");
@@ -15077,6 +15092,19 @@ function App() {
 
   const COMMANDS = [
     {
+      id: "help.welcome.show",
+      name: "Show Welcome Screen /welcome screen",
+      aliases: ["/welcome screen", "Show welcome screen", "Welcome screen"],
+      category: "Walkthrough",
+      record: "never",
+      ai: { expose: true, description: "Show the first-run welcome offer again, listing the guided tours and Documentation." },
+      action: () => {
+        welcomeDecidedRef.current = true;
+        setWelcomeVisible(true);
+        return true;
+      },
+    },
+    {
       id: "walkthrough.welcome",
       name: "/welcome — Start Getting Started Tour",
       aliases: ["/welcome", "/get_started"],
@@ -21852,6 +21880,37 @@ function App() {
   }, [collaborationController, eventBus, excalidrawAPI, scheduleLastSceneSave]);
 
   useEffect(() => () => window.clearTimeout(lastSceneSaveTimerRef.current), []);
+
+  useEffect(() => {
+    if (welcomeDecidedRef.current || welcomeDismissedRef.current) return undefined;
+    const api = excalidrawAPIRef.current;
+    if (!api) return undefined;
+    // Wait for a restored, shared, or multiplayer scene to land before deciding;
+    // a greeting over someone else's patch would be noise.
+    const timer = window.setTimeout(() => {
+      if (lastSceneRestoreInProgressRef.current) return;
+      welcomeDecidedRef.current = true;
+      setWelcomeVisible(shouldOfferWelcome({
+        dismissed: welcomeDismissedRef.current,
+        elementCount: api.getSceneElements().filter(element => !element.isDeleted).length,
+        presentationMode,
+        sceneReference: readSceneSourceReference(),
+        restoredScene: Boolean(loadLastScene()),
+        walkthroughStatus: walkthroughSnapshot.status,
+      }));
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [excalidrawAPI, presentationMode, walkthroughSnapshot.status]);
+
+  useEffect(() => {
+    if (!welcomeVisible) return undefined;
+    // Starting to draw is itself an answer: retire the offer without a click.
+    const root = document.querySelector(".excalidraw");
+    if (!root) return undefined;
+    const handlePointerDown = () => dismissWelcome();
+    root.addEventListener("pointerdown", handlePointerDown, { capture: true, once: true });
+    return () => root.removeEventListener("pointerdown", handlePointerDown, { capture: true });
+  }, [dismissWelcome, welcomeVisible]);
 
   const copyUnderscoresScene = async () => {
     try {
@@ -32037,6 +32096,20 @@ function App() {
         {renderSvgPathEditorOverlay()}
         {renderSvgNodeSelectionOverlay()}
       </div>
+
+      {welcomeVisible && (
+        <WelcomeCard
+          onStartWalkthrough={id => {
+            dismissWelcome();
+            void startWalkthrough(id).catch(error => setSceneExchangeStatus(error?.message || "The walkthrough could not start."));
+          }}
+          onOpenDocumentation={() => {
+            dismissWelcome();
+            toggleUnderscoresPanel("documentation", { open: true });
+          }}
+          onDismiss={() => dismissWelcome()}
+        />
+      )}
 
       <WalkthroughOverlay
         snapshot={walkthroughSnapshot}

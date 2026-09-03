@@ -264,3 +264,108 @@
 .iannix-walkthrough-marker { position: absolute; top: 4px; width: 1px; height: 10px; background: var(--underscores-muted); }
 .iannix-walkthrough-marker::after { content: ""; position: absolute; left: -2px; top: -2px; width: 5px; height: 5px; border: 1px solid currentColor; border-radius: 50%; background: var(--underscores-panel-bg); }
 .iannix-walkthrough-marker.active { height: 14px; color: var(--underscores-accent); background: currentColor; }
+
+/* First-run welcome offer. It sits above the canvas but below the walkthrough
+   overlay, so starting a tour from it hands over cleanly. */
+.underscores-welcome {
+  position: fixed;
+  inset: 0;
+  z-index: 10010;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  color: var(--underscores-foreground, var(--text-primary-color, #e7eaed));
+  font-family: var(--font-sans, sans-serif);
+}
+.underscores-welcome-card {
+  pointer-events: auto;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 16px 18px 14px;
+  border: 1px solid color-mix(in srgb, var(--underscores-foreground, #ddd) 18%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--underscores-panel-bg, #171717) 96%, transparent);
+  backdrop-filter: blur(16px);
+}
+.underscores-welcome-card header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.underscores-welcome-card h2 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: .01em; }
+.underscores-welcome-card h3 {
+  margin: 14px 0 6px;
+  color: var(--underscores-muted, #999);
+  font-size: 11px;
+  font-weight: 500;
+}
+.underscores-welcome-lede {
+  margin: 6px 0 14px;
+  color: var(--underscores-muted, #999);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.underscores-welcome-card button {
+  font: inherit;
+  color: var(--color-primary, var(--underscores-foreground, #e7eaed));
+  border: 1px solid var(--border-color, color-mix(in srgb, var(--underscores-foreground, #e7eaed) 20%, transparent));
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+.underscores-welcome-card button:hover,
+.underscores-welcome-card button:focus-visible {
+  background: var(--bg-hover-btn, color-mix(in srgb, currentColor 12%, transparent));
+}
+.underscores-welcome-close {
+  min-height: 22px;
+  padding: 0 7px;
+  border-color: transparent !important;
+  color: var(--underscores-muted, #999) !important;
+  font-size: 15px;
+  line-height: 1;
+}
+.underscores-welcome-primary,
+.underscores-welcome-tours button {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+}
+.underscores-welcome-primary { border-color: var(--border-focus, var(--underscores-accent, #67d7e6)); }
+.underscores-welcome-primary strong,
+.underscores-welcome-tours strong { display: block; font-size: 12px; font-weight: 600; }
+.underscores-welcome-primary span,
+.underscores-welcome-tours span {
+  display: block;
+  margin-top: 2px;
+  color: var(--underscores-muted, #999);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.underscores-welcome-tours { display: flex; flex-direction: column; gap: 5px; }
+.underscores-welcome-tours h3 { margin-bottom: 1px; }
+.underscores-welcome-card footer {
+  display: flex;
+  gap: 7px;
+  margin-top: 14px;
+}
+.underscores-welcome-card footer button { min-height: 27px; padding: 4px 9px; flex: 1; }
+.underscores-welcome-hint {
+  margin: 10px 0 0;
+  color: var(--underscores-muted, #999);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.underscores-welcome-hint code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-family: var(--font-mono, monospace);
+}
+@media (prefers-reduced-motion: reduce) {
+  .underscores-welcome-card { backdrop-filter: none; }
+}
