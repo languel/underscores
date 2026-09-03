@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createTimelineTicks, followTimelineViewRange, formatTimelinePosition, snapTimelineTime } from "./transport.js";
+import { updateTimelineClipSelection } from "./timelineSelection.js";
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const snapLevelFromPointer = event => event.metaKey ? (event.shiftKey ? "minor" : "major") : null;
@@ -34,10 +35,16 @@ const TransportTimeline = memo(function TransportTimeline({
   const trackRef = useRef(null);
   const zoomRef = useRef(null);
   const dragRef = useRef(null);
+  const selectionDragRef = useRef(null);
+  const selectionAnchorRef = useRef("");
+  const selectedClipIdsRef = useRef(selectedClipId ? [selectedClipId] : []);
+  const selectionInteractionRef = useRef(null);
   const laneScrollRef = useRef(null);
   const [expandedTakeIds, setExpandedTakeIds] = useState(() => new Set());
   const [arrangementLabelsCollapsed, setArrangementLabelsCollapsed] = useState(false);
   const [clipPreviewTimings, setClipPreviewTimings] = useState(() => new Map());
+  const [selectedClipIds, setSelectedClipIds] = useState(() => selectedClipId ? [selectedClipId] : []);
+  const [selectionRect, setSelectionRect] = useState(null);
   const authoredDuration = Math.max(0.001, Number(duration) || 0.001);
   const previousDurationRef = useRef(authoredDuration);
   const [trackWidth, setTrackWidth] = useState(768);
@@ -87,6 +94,68 @@ const TransportTimeline = memo(function TransportTimeline({
     return rows;
   }, [arrangementLanes, arrangementTakes, expandedTakeIds]);
 
+  const clipSelectionIndex = useMemo(() => {
+    const order = [];
+    const elementByClipId = new Map();
+    arrangementRows.forEach(row => {
+      // The take row is an aggregate overview. Once expanded, its child rows
+      // are the canonical visual owners of those clips and the aggregate must
+      // not add a second copy to the selection order.
+      if (row.kind === "take" && expandedTakeIds.has(row.id)) return;
+      row.clips.forEach(clip => {
+        if (elementByClipId.has(clip.id)) return;
+        order.push(clip.id);
+        elementByClipId.set(clip.id, clip.elementId || row.elementId || "");
+      });
+    });
+    return { order, elementByClipId };
+  }, [arrangementRows, expandedTakeIds]);
+
+  selectedClipIdsRef.current = selectedClipIds;
+  const selectedClipSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
+
+  const commitClipSelection = useCallback((ids, { additive = false, primaryClipId = "" } = {}) => {
+    const requested = new Set(Array.isArray(ids) ? ids : []);
+    const current = selectedClipIdsRef.current;
+    const next = clipSelectionIndex.order.filter(id => requested.has(id) || (additive && current.includes(id)));
+    const primary = primaryClipId && next.includes(primaryClipId) ? primaryClipId : next.at(-1) || "";
+    const elementIds = [...new Set(next.map(id => clipSelectionIndex.elementByClipId.get(id)).filter(Boolean))];
+    selectionAnchorRef.current = primaryClipId || primary;
+    setSelectedClipIds(next);
+    const primaryElementId = primary ? clipSelectionIndex.elementByClipId.get(primary) || "" : "";
+    onClipSelect(primaryElementId, primary, { clipIds: next, elementIds });
+  }, [clipSelectionIndex, onClipSelect]);
+
+  const selectClip = useCallback((event, clipId) => {
+    if (event.button !== 0) return false;
+    const next = updateTimelineClipSelection(
+      clipSelectionIndex.order,
+      selectedClipIdsRef.current,
+      selectionAnchorRef.current,
+      clipId,
+      { shiftKey: event.shiftKey, toggle: event.metaKey || event.ctrlKey },
+    );
+    commitClipSelection(next, { primaryClipId: clipId });
+    return true;
+  }, [clipSelectionIndex, commitClipSelection]);
+
+  selectionInteractionRef.current = { commitClipSelection, clipSelectionIndex };
+
+  useEffect(() => {
+    setSelectedClipIds(current => {
+      const next = clipSelectionIndex.order.filter(id => current.includes(id));
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [clipSelectionIndex]);
+
+  useEffect(() => {
+    if (!selectedClipId) {
+      setSelectedClipIds(current => current.length ? [] : current);
+      return;
+    }
+    setSelectedClipIds(current => current.includes(selectedClipId) ? current : [selectedClipId]);
+  }, [selectedClipId]);
+
   useEffect(() => {
     const selectedId = Object.keys(selectedElementIds || {}).find(id => selectedElementIds[id]);
     if (!selectedId) return;
@@ -101,6 +170,82 @@ const TransportTimeline = memo(function TransportTimeline({
     });
     return () => cancelAnimationFrame(frame);
   }, [arrangementLanes, selectedElementIds]);
+
+  useEffect(() => {
+    const selectionRectFor = (startX, startY, endX, endY) => {
+      const trackRect = trackRef.current?.getBoundingClientRect();
+      if (!trackRect) return null;
+      return {
+        left: Math.min(startX, endX) - trackRect.left,
+        top: Math.min(startY, endY) - trackRect.top,
+        width: Math.abs(endX - startX),
+        height: Math.abs(endY - startY),
+      };
+    };
+    const handleMove = event => {
+      const drag = selectionDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const moved = Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 3;
+      if (!moved && !drag.active) return;
+      drag.active = true;
+      setSelectionRect(selectionRectFor(drag.startX, drag.startY, event.clientX, event.clientY));
+    };
+    const handleRelease = event => {
+      const drag = selectionDragRef.current;
+      if (!drag || (event?.pointerId != null && drag.pointerId !== event.pointerId)) return;
+      const active = drag.active;
+      const selection = selectionInteractionRef.current;
+      if (active && selection) {
+        const left = Math.min(drag.startX, drag.latestX || drag.startX);
+        const right = Math.max(drag.startX, drag.latestX || drag.startX);
+        const top = Math.min(drag.startY, drag.latestY || drag.startY);
+        const bottom = Math.max(drag.startY, drag.latestY || drag.startY);
+        const ids = [];
+        laneScrollRef.current?.querySelectorAll?.("[data-clip-id]").forEach(node => {
+          const bounds = node.getBoundingClientRect();
+          if (bounds.right > left && bounds.left < right && bounds.bottom > top && bounds.top < bottom) {
+            const id = node.dataset.clipId;
+            if (id && !ids.includes(id)) ids.push(id);
+          }
+        });
+        selection.commitClipSelection(ids, { additive: drag.additive, primaryClipId: ids.at(-1) || "" });
+      } else if (!drag.additive && selection) {
+        selection.commitClipSelection([]);
+      }
+      try {
+        if (drag.captureTarget?.hasPointerCapture?.(drag.pointerId)) {
+          drag.captureTarget.releasePointerCapture(drag.pointerId);
+        }
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
+      selectionDragRef.current = null;
+      setSelectionRect(null);
+    };
+    const handlePointerMove = event => {
+      const drag = selectionDragRef.current;
+      if (drag && drag.pointerId === event.pointerId) {
+        drag.latestX = event.clientX;
+        drag.latestY = event.clientY;
+      }
+      handleMove(event);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") handleRelease();
+    };
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handleRelease);
+    window.addEventListener("pointercancel", handleRelease);
+    window.addEventListener("blur", handleRelease);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handleRelease);
+      window.removeEventListener("pointercancel", handleRelease);
+      window.removeEventListener("blur", handleRelease);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
 
   useEffect(() => {
     const node = trackRef.current;
@@ -354,6 +499,23 @@ const TransportTimeline = memo(function TransportTimeline({
     beginDrag(event, { kind: "playhead", time });
   };
 
+  const startBlockSelection = event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    selectionDragRef.current = {
+      pointerId: event.pointerId,
+      captureTarget: event.currentTarget,
+      startX: event.clientX,
+      startY: event.clientY,
+      latestX: event.clientX,
+      latestY: event.clientY,
+      additive: event.shiftKey || event.metaKey || event.ctrlKey,
+      active: false,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  };
+
   const grabExistingPlayhead = event => {
     if (event.button !== 0) return;
     event.stopPropagation();
@@ -389,11 +551,12 @@ const TransportTimeline = memo(function TransportTimeline({
     const visibleStart = Math.max(start, viewStart);
     const visibleEnd = Math.min(end, viewEnd);
     const elementId = clip.elementId || row.elementId;
-    const selected = selectedClipId === clip.id;
+    const selected = selectedClipSet.has(clip.id) || selectedClipId === clip.id;
     const label = row.kind === "take" ? (clip.elementLabel || row.label) : row.label;
     const beginClipDrag = (event, kind) => {
+      if (event.button !== 0) return;
       event.stopPropagation();
-      onClipSelect(elementId, clip.id);
+      selectClip(event, clip.id);
       beginDrag(event, {
         kind,
         elementId,
@@ -427,6 +590,7 @@ const TransportTimeline = memo(function TransportTimeline({
         }}
         title={`${label} · ${formatTimelinePosition(start, displayMode, options)}`}
         aria-label={`${label} clip`}
+        aria-pressed={selected}
       >
         <i className="iannix-arrangement-clip-handle start" onPointerDown={event => beginClipDrag(event, "clip-start")} />
         <span>{label}</span>
@@ -458,7 +622,7 @@ const TransportTimeline = memo(function TransportTimeline({
         ref={trackRef}
         className="iannix-timeline-track"
         onPointerDown={startPlayheadDrag}
-        title="Drag to seek · Command-drag snaps units · Command-Shift snaps subunits · Shift-drag marks a loop"
+        title="Drag to seek · Command-drag snaps units · Command-Shift snaps subunits · Shift-drag marks a loop · Shift-click clips to extend selection"
       >
         {ticks.map(tick => <i className={`iannix-timeline-gridline ${tick.major ? "major" : "minor"}`} key={tick.time} style={{ left: `${tick.percent}%` }} />)}
         {arrangementRows.length ? <div ref={laneScrollRef} className="iannix-arrangement-lanes" onPointerDown={event => event.stopPropagation()}>
@@ -481,12 +645,19 @@ const TransportTimeline = memo(function TransportTimeline({
                   <button type="button" onClick={() => onTakeDelete(row.id)} title="Delete take">×</button>
                 </span> : null}
               </div>
-              <div className="iannix-arrangement-row-track">
-                {row.clips.map(clip => renderArrangementClip(clip, row))}
+              <div className="iannix-arrangement-row-track" onPointerDown={startBlockSelection} aria-label="Drag across clips to select a block" title="Drag across clips to select a block; Shift-click adds a range">
+                {row.kind === "take" && expandedTakeIds.has(row.id)
+                  ? null
+                  : row.clips.map(clip => renderArrangementClip(clip, row))}
               </div>
             </div>
           ))}
         </div> : null}
+        {selectionRect ? <div
+          className="iannix-timeline-selection-rect"
+          style={selectionRect}
+          aria-hidden="true"
+        /> : null}
         <div className="iannix-timeline-key-lane" aria-label="Object automation keyframes">
           {automationKeys.filter(key => key.time >= viewStart && key.time <= viewEnd).map(key => <i key={`${key.elementId}-${key.path}-${key.id}`} className="iannix-timeline-key" style={{ left: `${percentInView(key.time)}%` }} title={`${key.path} · ${formatTimelinePosition(key.time, displayMode, options)}`} />)}
         </div>

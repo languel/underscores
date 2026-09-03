@@ -3,11 +3,13 @@ import { sceneCoordsToViewportCoords } from "@excalidraw/excalidraw/dist/excalid
 import { normalizeRelationshipGraph, normalizePhysicsEndpoint } from "./relationshipGraph.js";
 import { getPhysicsElementCenter, resolvePhysicsEndpointAtPose } from "./physicsGeometry.js";
 import { getScoreData } from "./iannixEngine.js";
+import { buildDefaultExcalidrawLabelMap } from "./elementLabels.js";
+import { isNativeExcalidrawElement } from "./sceneLayers.js";
 
 // Keep debug labels aligned with the Outliner naming order. Physics IDs are
 // useful as a last resort, but authored names should make the overlay readable
 // without requiring users to cross-reference solver metadata.
-const debugObjectLabel = (element, metadata = {}) => {
+const debugObjectLabel = (element, metadata = {}, defaultLabelMap = null) => {
   if (element) {
     const scoreLabel = getScoreData(element)?.label;
     if (scoreLabel) return scoreLabel;
@@ -17,7 +19,7 @@ const debugObjectLabel = (element, metadata = {}) => {
     if (livecodeName) return livecodeName;
     const mediaName = element.customData?.underscoresMediaStream?.name;
     if (mediaName) return mediaName;
-    return element.id;
+    return defaultLabelMap?.get(element.id) || element.id;
   }
   return metadata.label || metadata.name || metadata.instanceId || metadata.bodyId || metadata.id || "Physics body";
 };
@@ -244,7 +246,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
       }
     };
 
-    const drawDebugBodies = (context, snapshots, currentElements, graph, toViewport, zoom, settings, theme) => {
+    const drawDebugBodies = (context, snapshots, currentElements, graph, toViewport, zoom, settings, theme, defaultLabelMap) => {
       if (!settings.bodies && !settings.colliders && !settings.labels) return;
       const elementById = new Map(currentElements.filter(element => element && !element.isDeleted).map(element => [element.id, element]));
       context.save();
@@ -280,14 +282,14 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
           if (settings.labels) {
             context.fillStyle = debugColor(settings, "labels", "#6db7ffff", 1, element?.strokeColor, theme, context);
             context.font = "10px monospace";
-            context.fillText(debugObjectLabel(element, metadataEntry), point[0] + 6, point[1] - 6);
+            context.fillText(debugObjectLabel(element, metadataEntry, defaultLabelMap), point[0] + 6, point[1] - 6);
           }
         }
       }
       context.restore();
     };
 
-    const drawDebugConstraints = (context, graph, currentElements, toViewport, settings, poseByBodyId, theme) => {
+    const drawDebugConstraints = (context, graph, currentElements, toViewport, settings, poseByBodyId, theme, defaultLabelMap) => {
       if (!settings.constraints && !settings.labels) return;
       const elementById = new Map(currentElements.filter(element => element && !element.isDeleted).map(element => [element.id, element]));
       context.save();
@@ -336,7 +338,7 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
           const label = debugObjectLabel(pivot, {
             label: constraint.name || `${constraint.kind || "constraint"} constraint`,
             id: constraint.id,
-          });
+          }, defaultLabelMap);
           context.fillStyle = debugColor(settings, "labels", "#6db7ffff", 1, pivot?.strokeColor, theme, context);
           context.font = "10px monospace";
           context.fillText(label, (start[0] + end[0]) / 2 + 6, (start[1] + end[1]) / 2 - 6);
@@ -605,8 +607,9 @@ const PhysicsOverlay = memo(function PhysicsOverlay({ runtime, graph: graphValue
         drawRelationships(context, normalizeRelationshipGraph(currentGraph), diagnosticElements, selectedIds, showAll, toViewport, poseByBodyId);
         if (debugSettings?.enabled) {
           const theme = diagnosticAppState.theme || "light";
-          drawDebugBodies(context, snapshots, diagnosticElements, graph, toViewport, zoom, debugSettings, theme);
-          drawDebugConstraints(context, graph, diagnosticElements, toViewport, debugSettings, poseByBodyId, theme);
+          const defaultLabelMap = buildDefaultExcalidrawLabelMap(diagnosticElements.filter(isNativeExcalidrawElement));
+          drawDebugBodies(context, snapshots, diagnosticElements, graph, toViewport, zoom, debugSettings, theme, defaultLabelMap);
+          drawDebugConstraints(context, graph, diagnosticElements, toViewport, debugSettings, poseByBodyId, theme, defaultLabelMap);
           drawDebugEvents(context, toViewport, debugSettings, diagnosticElements, theme);
         }
         propsRef.current.onDebugGeometry?.([

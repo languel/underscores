@@ -16,6 +16,7 @@ export const WALKTHROUGH_ASSERTION_TYPES = Object.freeze([
   "scene.exists",
   "selection.includes",
   "livecode.status",
+  "physics.state",
   "event.observed",
 ]);
 
@@ -23,7 +24,7 @@ const LEARNER_GATE_COMMAND = /(?:^excalidraw\.(?:file|scene\.clear|selection\.de
 export const requiresWalkthroughLearnerGate = commandId => LEARNER_GATE_COMMAND.test(String(commandId || ""));
 
 export const normalizeWalkthroughCue = (cue = {}) => {
-  const type = cue.type === "ui" ? "ui" : "command";
+  const type = cue.type === "ui" ? "ui" : cue.type === "input" ? "input" : "command";
   const normalized = {
     id: text(cue.id) || createId("cue"),
     type,
@@ -34,12 +35,34 @@ export const normalizeWalkthroughCue = (cue = {}) => {
     normalized.commandId = text(cue.commandId);
     normalized.args = clone(cue.args && typeof cue.args === "object" ? cue.args : {});
     normalized.instantArgs = clone(cue.instantArgs && typeof cue.instantArgs === "object" ? cue.instantArgs : null);
-  } else {
+  } else if (type === "ui") {
     normalized.action = WALKTHROUGH_UI_ACTIONS.includes(cue.action) ? cue.action : "click";
     normalized.target = text(cue.target);
     normalized.value = text(cue.value);
     normalized.keys = Array.isArray(cue.keys) ? cue.keys.map(text).filter(Boolean) : [];
     normalized.typingDelay = Math.max(0, finite(cue.typingDelay, 8));
+  } else {
+    normalized.eventType = text(cue.eventType) || text(cue.args?.eventType) || "pointer";
+    normalized.scope = cue.scope === "ui" || cue.args?.scope === "ui" ? "ui" : "canvas";
+    normalized.phase = text(cue.phase) || text(cue.args?.phase) || "gesture";
+    normalized.pointerId = finite(cue.pointerId ?? cue.args?.pointerId);
+    normalized.pointerType = text(cue.pointerType) || text(cue.args?.pointerType) || "mouse";
+    normalized.tool = text(cue.tool) || text(cue.args?.tool);
+    normalized.color = text(cue.color) || text(cue.args?.color);
+    normalized.opacity = Math.max(0, Math.min(100, finite(cue.opacity ?? cue.args?.opacity, 100)));
+    normalized.duration = Math.max(0, finite(cue.duration ?? cue.args?.duration));
+    normalized.samples = clone(Array.isArray(cue.samples) ? cue.samples : (Array.isArray(cue.args?.samples) ? cue.args.samples : []));
+    normalized.args = clone(cue.args && typeof cue.args === "object" ? cue.args : {
+      eventType: normalized.eventType,
+      scope: normalized.scope,
+      phase: normalized.phase,
+      pointerId: normalized.pointerId,
+      pointerType: normalized.pointerType,
+      tool: normalized.tool,
+      color: normalized.color,
+      opacity: normalized.opacity,
+      samples: normalized.samples,
+    });
   }
   return normalized;
 };
@@ -126,6 +149,7 @@ export const updateWalkthroughRevision = (current, patch, expectedRevision = nul
 
 const commandTitle = (action, describeCommand) => {
   if (action.commandId) return describeCommand?.(action.commandId)?.name || action.commandId;
+  if (action.kind === "input") return `${action.args?.eventType || "Pointer"} input`;
   return action.args?.label || `${action.kind || "Action"}`;
 };
 
@@ -168,12 +192,26 @@ export const walkthroughFromSession = (session, { title, describeCommand } = {})
         narration: "",
         focusTarget: inferFocusTarget(first),
         at: Math.max(0, groupStart - start),
-        cues: group.actions.filter(action => action.commandId).map(action => ({
-          type: "command",
-          commandId: action.commandId,
-          args: clone(action.args || {}),
-          at: Math.max(0, finite(action.at) - groupStart),
-        })),
+        cues: group.actions.flatMap(action => {
+          const at = Math.max(0, finite(action.at) - groupStart);
+          if (action.kind === "input") return [{
+            type: "input",
+            eventType: action.args?.eventType,
+            scope: action.args?.scope,
+            phase: action.args?.phase,
+            pointerId: action.args?.pointerId,
+            pointerType: action.args?.pointerType,
+            tool: action.args?.tool,
+            color: action.args?.color,
+            opacity: action.args?.opacity,
+            duration: action.duration,
+            samples: clone(action.args?.samples || []),
+            args: clone(action.args || {}),
+            at,
+          }];
+          if (!action.commandId) return [];
+          return [{ type: "command", commandId: action.commandId, args: clone(action.args || {}), at }];
+        }),
         advance: { mode: "continue" },
         allowSkip: true,
       };
@@ -216,6 +254,33 @@ export const evaluateWalkthroughAssertion = (assertion, context = {}) => {
       && (normalized.compiled == null || Boolean(context.livecodeStatus?.[element.id]?.compiled) === Boolean(normalized.compiled));
     return { passed, reason: passed ? "Livecode state matches." : "The Livecode node has not reached the requested state." };
   }
+  if (normalized.type === "physics.state") {
+    const physics = context.physics || {};
+    const systems = Array.isArray(physics.systems) ? physics.systems : [];
+    const bodies = Array.isArray(physics.bodies) ? physics.bodies : [];
+    const constraints = Array.isArray(physics.constraints) ? physics.constraints : [];
+    const mappings = Array.isArray(physics.mappings) ? physics.mappings : [];
+    const systemId = normalized.systemId || null;
+    const systemMatches = system => !systemId || system.id === systemId;
+    const bodyCount = bodies.filter(body => systemMatches(body)).length;
+    const constraintCount = constraints.filter(constraint => systemMatches(constraint)).length;
+    const mappingCount = mappings.filter(mapping => systemMatches(mapping)).length;
+    const systemCount = systems.filter(systemMatches).length;
+    const playing = context.physicsPlaying == null ? null : Boolean(context.physicsPlaying);
+    const passed = systemCount >= Math.max(0, finite(normalized.minSystems, 0))
+      && bodyCount >= Math.max(0, finite(normalized.minBodies, 0))
+      && constraintCount >= Math.max(0, finite(normalized.minConstraints, 0))
+      && mappingCount >= Math.max(0, finite(normalized.minMappings, 0))
+      && (normalized.playing == null || playing === Boolean(normalized.playing));
+    return {
+      passed,
+      reason: passed
+        ? "Physics state matches."
+        : "The physics world has not reached the requested state.",
+      counts: { systems: systemCount, bodies: bodyCount, constraints: constraintCount, mappings: mappingCount },
+      ...(playing == null ? {} : { playing }),
+    };
+  }
   const events = context.events || [];
   const passed = events.some(event => event.name === normalized.name || event.type === normalized.name);
   return { passed, reason: passed ? "Required event was observed." : `Waiting for ${normalized.name || "the required event"}.` };
@@ -254,9 +319,10 @@ export const completeWalkthroughRunTrace = (trace, outcome) => ({
 });
 
 export class WalkthroughRunner {
-  constructor({ executeCommand, performUiAction, evaluateAssertion, captureBaseline, restoreBaseline, persistRecovery, clearRecovery, onChange, onInfo, wait } = {}) {
+  constructor({ executeCommand, performUiAction, performInput, evaluateAssertion, captureBaseline, restoreBaseline, persistRecovery, clearRecovery, onChange, onInfo, wait } = {}) {
     this.executeCommand = executeCommand || (async () => undefined);
     this.performUiAction = performUiAction || (async () => undefined);
+    this.performInput = performInput || (async () => undefined);
     this.evaluateAssertion = evaluateAssertion || (assertion => evaluateWalkthroughAssertion(assertion));
     this.captureBaseline = captureBaseline || (() => null);
     this.restoreBaseline = restoreBaseline || (async () => undefined);
@@ -311,6 +377,7 @@ export class WalkthroughRunner {
       if (generation !== this.generation) return;
       try {
         if (cue.type === "command") await this.executeCommand(cue.commandId, clone(this.state.instant && cue.instantArgs ? cue.instantArgs : cue.args || {}), { source: "walkthrough", record: false });
+        else if (cue.type === "input") await this.performInput(clone(cue));
         else await this.performUiAction(clone(cue));
         this.publish({ trace: appendWalkthroughTraceEvent(this.state.trace, { kind: "cue", stepId: step.id, cueId: cue.id, cueType: cue.type, commandId: cue.commandId, action: cue.action, target: cue.target, args: cue.args }) });
       } catch (error) {

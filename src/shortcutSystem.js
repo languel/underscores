@@ -32,7 +32,8 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "dock.right.toggle", label: "Right dock collapse", defaultBinding: "Mod+Alt+KeyB" },
   { id: "dock.bottom.toggle", commandId: "dock.bottom.toggle", label: "Bottom dock collapse", defaultBinding: "Mod+Shift+KeyB" },
   { id: "mods.script.open", label: "Script panel", defaultBinding: "Ctrl+Alt+KeyB" },
-  { id: "history.record.toggle", label: "Session recording", defaultBinding: "Ctrl+Alt+KeyR" },
+  { id: "history.record.toggle", label: "Session recording", defaultBinding: "Mod+Alt+KeyR" },
+  { id: "screencast.input.toggle", commandId: "screencast.input.toggle", label: "Screencast input overlay", defaultBinding: "Mod+Alt+KeyI" },
   { id: "arrangement.record.toggle", label: "Arrangement recording", defaultBinding: "Alt+Shift+KeyR" },
   { id: "arrangement.record.mode.toggle", label: "Rolling / step recording", defaultBinding: "Alt+Shift+KeyS" },
   { id: "arrangement.step.forward", label: "Advance arrangement step", defaultBinding: "Alt+ArrowRight" },
@@ -72,9 +73,15 @@ export const normalizeShortcutBindings = value => {
   // Mod+Shift+G used to be the Grid panel default. Reserve the conventional
   // binding for Ungroup without overriding a user who has explicitly already
   // assigned an ungroup shortcut.
-  const migrated = source["panel-grid"] === "Mod+Shift+KeyG" && source["scene.ungroup"] === undefined
+  const panelMigrated = source["panel-grid"] === "Mod+Shift+KeyG" && source["scene.ungroup"] === undefined
     ? { ...source, "panel-grid": "Ctrl+Alt+KeyG" }
     : source;
+  // The recording toggle used Ctrl+Alt+R as its built-in binding before the
+  // portable Mod modifier was introduced. Migrate that untouched built-in so
+  // macOS users get Command-Option-R without needing to reset shortcuts.
+  const migrated = panelMigrated["history.record.toggle"] === "Ctrl+Alt+KeyR"
+    ? { ...panelMigrated, "history.record.toggle": "Mod+Alt+KeyR" }
+    : panelMigrated;
   return Object.fromEntries(SHORTCUT_ACTIONS.map(action => [
     action.id,
     typeof migrated[action.id] === "string" ? migrated[action.id] : action.defaultBinding,

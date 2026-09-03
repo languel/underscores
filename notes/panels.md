@@ -116,11 +116,13 @@ Info is a normal panel, not an inspector card. It may float or join the bottom d
 
 The editable **Settings → Shortcuts** view is the source of truth for Underscores-specific key bindings. In addition to canvas tools and grid actions, it includes panel toggles, left/right/bottom dock collapse, transport, history, theme, modifier, geometry, and stroke-width actions. New actions must be registered there before they receive an application keyboard handler.
 
+**Screencast input** is a deliberately separate presentation aid rather than another panel. `/screencast` or Command-Option-I (Ctrl-Alt-I elsewhere) toggles its tiny draggable overlay. It shows recent shortcuts, clicks, completed drags, scroll direction, and active canvas tools; it does not consume pointer events or duplicate History's full gesture samples. See [Screencast input](screencast-input.md).
+
 The detailed control and styling contract lives in [UI guidelines](ui-guidelines.md).
 
 ## Canonical scene layers
 
-Underscores uses Excalidraw's scene array as the single canonical back-to-front paint order. The Outliner presents that same stack front-to-back, so the first visible row is the frontmost object. Drag an Outliner row above or below another row to move it in front of or behind that object; the updated scene array is committed through Excalidraw history and is therefore shared by canvas rendering, export, selection, and subsequent native ordering actions.
+Underscores uses Excalidraw's scene array as the single canonical back-to-front paint order. The Outliner presents that same stack front-to-back, so the first visible row is the frontmost object. Drag an Outliner row above or below another row to move it in front of or behind that object; the updated scene array is committed through Excalidraw history and is therefore shared by canvas rendering, export, selection, and subsequent native ordering actions. Native objects without an authored name receive a type-specific, one-based scene-order label such as `stroke_0001`; the four-digit suffix increments independently for each native object type. Reordering or deleting objects can therefore renumber generated labels, while score, code, media, and explicitly renamed objects keep their authored labels. Double-click a native row label to replace its generated label.
 
 Live p5 frames follow this stack relative to other p5 frames. They are rendered in Underscores's DOM overlay above Excalidraw's native canvas, so an individual p5 frame cannot yet be interleaved between two native Excalidraw elements. That compositing boundary is deliberate for the current fast live-canvas runtime; a future unified compositor can remove it without changing the canonical order model.
 

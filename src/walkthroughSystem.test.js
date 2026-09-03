@@ -43,13 +43,44 @@ test("history conversion preserves command groups and leaves narration blank", (
   assert.equal(walkthrough.steps[1].focusTarget, "panel.info");
 });
 
-test("allowlisted assertions evaluate panel, scene, selection, livecode, and events", () => {
+test("history conversion preserves sampled input actions as walkthrough cues", () => {
+  const walkthrough = walkthroughFromSession({ name: "Pointer lesson", actions: [{
+    id: "pointer-gesture",
+    at: 0.5,
+    duration: 0.4,
+    kind: "input",
+    args: {
+      eventType: "laser",
+      scope: "canvas",
+      phase: "up",
+      pointerType: "mouse",
+      samples: [{ scene: { x: 12, y: 24 }, time: 0 }],
+    },
+  }] });
+  const cue = walkthrough.steps[0].cues[0];
+  assert.equal(cue.type, "input");
+  assert.equal(cue.eventType, "laser");
+  assert.equal(cue.scope, "canvas");
+  assert.equal(cue.duration, 0.4);
+  assert.equal(cue.samples[0].scene.x, 12);
+});
+
+test("allowlisted assertions evaluate panel, scene, selection, livecode, physics, and events", () => {
   const element = { id: "node", type: "rectangle", customData: { underscoresLivecode: { kind: "p5", runtime: { running: true } } } };
   const context = { panels: { info: { open: true, active: true } }, elements: [element], selectedElementIds: ["node"], livecodeStatus: { node: { compiled: true } }, events: [{ name: "done" }] };
   assert.equal(evaluateWalkthroughAssertion({ type: "panel.state", panelId: "info", open: true }, context).passed, true);
   assert.equal(evaluateWalkthroughAssertion({ type: "scene.exists", kind: "p5" }, context).passed, true);
   assert.equal(evaluateWalkthroughAssertion({ type: "selection.includes", elementId: "node" }, context).passed, true);
   assert.equal(evaluateWalkthroughAssertion({ type: "livecode.status", elementId: "node", compiled: true }, context).passed, true);
+  assert.equal(evaluateWalkthroughAssertion({ type: "physics.state", minSystems: 1, minBodies: 2, minConstraints: 1, minMappings: 1, playing: true }, {
+    physics: {
+      systems: [{ id: "world" }],
+      bodies: [{ id: "a", systemId: "world" }, { id: "b", systemId: "world" }],
+      constraints: [{ id: "joint", systemId: "world" }],
+      mappings: [{ id: "mapping", systemId: "world" }],
+    },
+    physicsPlaying: true,
+  }).passed, true);
   assert.equal(evaluateWalkthroughAssertion({ type: "event.observed", name: "done" }, context).passed, true);
 });
 
@@ -113,6 +144,14 @@ test("runner pacing uses a fake clock and instant mode swaps arguments", async (
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(waits, []);
   assert.deepEqual(calls, [{ id: "create", args: { source: "final" } }]);
+});
+
+test("runner dispatches input cues through the input callback", async () => {
+  const inputs = [];
+  const runner = new WalkthroughRunner({ performInput: async cue => inputs.push(cue.eventType), wait: async () => undefined });
+  await runner.start(createWalkthrough({ steps: [{ title: "Pointer", cues: [{ type: "input", eventType: "laser", samples: [{ scene: { x: 1, y: 2 } }] }] }] }), { instant: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(inputs, ["laser"]);
 });
 
 test("runner cancellation prevents delayed cues and linked seeks select logical steps", async () => {

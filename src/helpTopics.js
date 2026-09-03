@@ -17,6 +17,19 @@ export const HELP_TOPICS = Object.freeze([
     ],
   },
   {
+    id: "physics-marionette",
+    title: "Physics marionette case study",
+    keywords: "physics marionette paper doll bauhaus schlemmer rig body pin spring axle revolute live pose mouse wind chime collision expressive synth mediapipe t-pose history recording playback walkthrough",
+    body: "The Marionette case study builds a Bauhaus-inspired paper doll from four ordinary Excalidraw primitives, then layers an articulated physics rig, collision sound, a second MediaPipe-driven visual rig, and History playback. Start `/walkthrough start physics-marionette-study-v1` for the seven-stage lesson, or run `/physics demo marionette` to jump directly to the complete starter. The generated Marionette world contains a world pin for the head, a damped neck spring, and revolute shoulder joints. Play the world and drag an unselected body or joint for a temporary live pose; Reset returns to the authored pose and Apply Current Pose commits a staged arrangement. Add a body-to-body Expressive Synth mapping to make contacts behave like wind chimes. Keep the physics doll running while a separate MediaPipe · Schlemmer pose p5 node provides a second rig; when no completed camera frame exists, the example falls back to a deterministic T-pose. Finally record a short gesture with History, stop the take, and use `/history play`, the playhead, export, or Create walkthrough to review and share it. The full classroom notes live in `notes/examples/physics-marionette.md`.",
+    examples: [
+      "/walkthrough start physics-marionette-study-v1",
+      "const graph = __.api.relations.get();\nconst world = graph.systems.find(system => system.name === \"Marionette\");\nconst bodies = graph.bodies.filter(body => body.systemId === world?.id);\nconst joints = graph.constraints.filter(constraint => constraint.systemId === world?.id);",
+      "await __.api.commands.execute(\"physics.mapping.create\", { collisionClass: \"body-body\", target: \"expressive-voice\" });",
+      "const holistic = __.streams.list().find(stream => stream.kind === \"holistic\");\nconst nose = holistic?.feature(\"pose.nose\", { space: \"normalized\" });\nconst physics = __.api.physics;",
+      "/record start\n/record stop\n/history play",
+    ],
+  },
+  {
     id: "physics-mappings",
     title: "Physics collision mappings",
     keywords: "physics collision mapping source filter transform target midi expressive synth begin hit end stay contact body wall tags object",
@@ -169,6 +182,17 @@ export const HELP_TOPICS = Object.freeze([
     ],
   },
   {
+    id: "screencast-input",
+    title: "Screencast input",
+    keywords: "screencast input overlay keyboard shortcut click drag mouse gesture tool pointer tutorial presentation recording blender screencast keys",
+    body: "Screencast input is a deliberately small, presentation-friendly view of the latest interactions. It shows shortcut presses, clicks, completed drags, scroll direction, and canvas tool changes without listing every high-frequency mouse sample. Enable it from Settings → Interface, run `/screencast`, or press Command-Option-I on macOS (Ctrl-Alt-I elsewhere). Drag its header to reposition it; the position is remembered per browser. The close button and the same shortcut hide it again. The overlay does not change Excalidraw or livecode pointer ownership: interactive code, model, and media surfaces keep their own controls, while the canvas cursor changes to a pencil, hand, eraser, or shape cursor for the active Excalidraw tool. History still captures full press/move/release gesture samples when Canvas / performance input recording is enabled; during playback, the virtual cursor uses the matching recorded Excalidraw tool symbol and laser color. Screencast input is only the visual cue layer for live work and walkthroughs.",
+    examples: [
+      "/screencast",
+      "Command-Option-I  →  toggle the overlay",
+      "Settings → Interface → Screencast input",
+    ],
+  },
+  {
     id: "media-3d-models",
     title: "3D model inputs",
     keywords: "3d model obj gltf glb usd usdz zip archive mtl textures media input drag drop model viewer animation mixer blendshape morph target preview",
@@ -211,7 +235,7 @@ export const HELP_TOPICS = Object.freeze([
     id: "panel-outliner",
     title: "Outliner",
     keywords: "outliner scene objects labels filter native excalidraw code score physics visibility lock delete selection",
-    body: "Outliner is the compact inventory of the current patch. Search by label or id, switch filters for native, code, Score, and Physics objects, then select, hide, lock, or delete an object without changing its authored data.",
+    body: "Outliner is the compact inventory of the current patch. Search by label or id, switch filters for native, code, Score, and Physics objects, then select, hide, lock, or delete an object without changing its authored data. Unnamed native Excalidraw objects get type-specific, one-based scene-order labels such as stroke_0001; the four-digit suffix counts independently for each native type. Reordering or deleting objects can renumber generated labels, while double-clicking a row label creates an authored name that remains unchanged.",
   },
   {
     id: "panel-playlist",
@@ -301,7 +325,7 @@ export const HELP_TOPICS = Object.freeze([
     id: "panel-history",
     title: "History",
     keywords: "history recording playback session baseline macro walkthrough",
-    body: "History records command and presentation sessions with recoverable baselines. Pause, seek, replay, export, or turn a recording into a draft Walkthrough without inventing narration.",
+    body: "History records command and presentation sessions with recoverable baselines. Use the History button or the Session recording shortcut (Command-Option-R on macOS by default; Ctrl-Alt-R elsewhere) to start or stop without recording the toggle itself. Enable Canvas / performance to retain pointer, mouse, pen, touch, wheel, click, or laser motion on the canvas and interactive performance surfaces. Enable UI events separately when a tutorial should retain panel, menu, editor, and settings interactions; keep it off for a clean rehearsal while you tweak the interface. Continuous move samples from the same pointer family are grouped into one readable clip within their scope; clicks and other discrete events stay separate, while a press/move/release drag is captured as one gesture clip. Gestures are sampled into bounded input actions and playback shows a glowing virtual cursor using the matching recorded Excalidraw tool symbol, cursor ring, or laser path; the Virtual cursor toggle controls that visual layer. Pause, seek, replay, export, or turn a recording into a draft Walkthrough with the input cues preserved for editing.",
   },
   {
     id: "panel-walkthrough",
@@ -318,8 +342,8 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "panel-timeline",
     title: "Timeline",
-    keywords: "timeline transport play pause seek tempo beats timecode frames loop",
-    body: "Timeline is the shared transport for frame, timecode, and beat-based work. Play, pause, seek, set tempo and meter, mark loops, and follow linked Livecode or walkthrough steps.",
+    keywords: "timeline transport play pause seek tempo beats timecode frames loop clips selection block shift",
+    body: "Timeline is the shared transport for frame, timecode, and beat-based work. Play, pause, seek, set tempo and meter, mark loops, and follow linked Livecode or walkthrough steps. Shift-click clips to select a contiguous range, Command/Ctrl-click to toggle individual clips, or drag across a lane area to make a block selection; selecting multiple clips also selects their canvas objects. Expanded takes show clips only in their object lanes, so the aggregate take row does not duplicate them.",
   },
   {
     id: "panel-mixer",

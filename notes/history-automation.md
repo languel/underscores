@@ -1,8 +1,8 @@
 # Recordable Sessions and Automation
 
-Last updated: 2026-08-30
+Last updated: 2026-09-03
 
-Underscores records semantic intent and world-coordinate input rather than screen pixels. The first implementation is deliberately separate from Excalidraw undo, but both observe the same scene and command transactions so they can converge later.
+Underscores records semantic intent and world-coordinate input rather than screen pixels. The first implementation is deliberately separate from Excalidraw undo, but both observe the same scene and command transactions so they can converge later. History can also opt into bounded input tracks for pointer, mouse, pen, touch, wheel, click, and laser activity. **Canvas / performance** and **UI events** are separate switches: keep Canvas enabled and UI disabled for a clean performance take, or enable both when authoring a tutorial.
 
 History is also deliberately separate from [Arrangement clips](arrangement-clips.md). Arrangement schedules object lifecycles on the score timeline; History remains the complete-app audit, automation, and replay system. Arrangement commands may appear in an active History audit like other commands, but this project does not change History's action schema, Actions table, controls, playback model, or project-duration authority.
 
@@ -49,6 +49,10 @@ The JSON envelope is versioned and begins with:
   version: 1,
   seed,
   clock: { fps, tempo, signature },
+  includePresentation: true,
+  includeInput: false, // legacy aggregate; true when either input scope is enabled
+  includeCanvasInput: false,
+  includeUiInput: false,
   baseline: {
     sceneJson,
     presentation: { camera, selection, activeTool, panels, tabs },
@@ -60,6 +64,8 @@ The JSON envelope is versioned and begins with:
 Every action has monotonic `at` time, global `transportTime`, `duration`, `source`, `groupId`, track, enabled state, typed arguments, and optional result references. Full playback restores the baseline by default. Presentation playback and MIDI output can be armed independently. MIDI actions store destination-independent pattern/context data and resolve the current external or internal route only when replayed.
 
 High-rate strokes store normalized input samples as one stream rather than one command per point. Samples include scene coordinates, relative time, pressure, tilt, twist, buttons, pointer/device identity, and phase. The completed native Excalidraw element snapshot is kept beside the stream so playback can reveal the stroke and then commit exact geometry independent of viewport size or zoom.
+
+When either input scope is enabled in History, browser capture listeners retain pointer gestures as one sampled `input` action per press/release (including the active Excalidraw laser tool) and throttle hover/wheel/click events. Continuous move samples from the same pointer family are folded into one clip within their scope; clicks and other discrete events remain separate, while a press/move/release drag is one sampled gesture clip. A command, scene change, scope change, or different pointer family also starts a new clip, keeping tutorial and performance takes readable while preserving each sample's phase, target, and coordinates. Each action keeps its `scope` (`canvas` or `ui`), event type, pointer identity, modifiers, target summary, scene and viewport coordinates, pressure/tilt, and optional laser color. Both scopes are off by default, never feed back into the recorder during playback, and are bounded so a long take cannot grow without limit. History playback shows a glowing virtual cursor arrow (plus a cursor ring and animated laser paths); **Virtual cursor** controls that visual playback independently. The arrow is rendered in a fixed overlay so UI-event playback can point into side and bottom panels as well as the canvas. Create walkthrough preserves these actions as input cues so the author can keep, edit, or remove them before publishing a lesson.
 
 ## Loop gesture overdub
 
@@ -102,6 +108,7 @@ Useful slash commands include:
 
 - `/welcome` or `/get_started` starts the bundled Getting Started guided tour.
 - `/record start`, `/record play`, `/record loop`, `/record pause`, `/record stop`
+- The History transport button also has a global Session recording shortcut: Command-Option-R on macOS by default (Ctrl-Alt-R elsewhere). The shortcut dispatches with `record: false`, so starting or stopping a take does not add the toggle gesture to the take.
 - `/history`, `/history play`, `/history seek 2.5`
 - `/macro save My phrase`, `/macro insert My phrase relative`
 - `/ex save [name]` saves the current project; an optional name such as `/ex save bioblip_melody` downloads `bioblip_melody.__.json`. Explicit `.excalidraw` export remains available for interoperability.

@@ -72,10 +72,10 @@ export const createMusicalGasExample = ({ x = 100, y = 100, width = 720, height 
 export const createMarionetteExample = ({ x = 180, y = 120, idPrefix = `marionette-${crypto.randomUUID()}` } = {}) => {
   const systemId = `${idPrefix}-system`;
   const parts = [
-    { id: `${idPrefix}-head`, type: "ellipse", x: x + 70, y, width: 80, height: 80 },
-    { id: `${idPrefix}-body`, type: "rectangle", x: x + 60, y: y + 105, width: 100, height: 150 },
-    { id: `${idPrefix}-left-arm`, type: "rectangle", x, y: y + 115, width: 65, height: 22 },
-    { id: `${idPrefix}-right-arm`, type: "rectangle", x: x + 155, y: y + 115, width: 65, height: 22 },
+    { id: `${idPrefix}-head`, type: "ellipse", x: x + 70, y, width: 80, height: 80, backgroundColor: "#f2df55", strokeColor: "#f2df55", strokeWidth: 3 },
+    { id: `${idPrefix}-body`, type: "rectangle", x: x + 60, y: y + 105, width: 100, height: 150, backgroundColor: "#e86f68", strokeColor: "#e86f68", strokeWidth: 3 },
+    { id: `${idPrefix}-left-arm`, type: "rectangle", x, y: y + 115, width: 65, height: 22, backgroundColor: "#6fa5ff", strokeColor: "#6fa5ff", strokeWidth: 3 },
+    { id: `${idPrefix}-right-arm`, type: "rectangle", x: x + 155, y: y + 115, width: 65, height: 22, backgroundColor: "#6ee795", strokeColor: "#6ee795", strokeWidth: 3 },
   ];
   const bodyByElement = new Map(parts.map(spec => [spec.id, `${spec.id}-body`]));
   const endpoint = elementId => ({ kind: "object", objectRef: elementId, anchor: "center" });
