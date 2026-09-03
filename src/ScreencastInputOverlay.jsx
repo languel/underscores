@@ -22,18 +22,33 @@ const keyChord = event => {
   return chord.replace(/Arrow(?:Down|Left|Right|Up)|Delete/g, key => KEY_DISPLAY_LABELS[key] || key);
 };
 
-const MouseGlyph = ({ compact = false }) => (
-  <svg
-    className={`underscores-screencast-input-mouse-glyph${compact ? " is-compact" : ""}`}
-    viewBox="0 0 24 30"
-    fill="none"
-    aria-hidden="true"
-  >
-    <rect x="3.5" y="1.5" width="17" height="27" rx="8.5" />
-    <path d="M12 2v8.5M4 11.5h16" />
-    <path d="M12 4.5v4" className="underscores-screencast-input-mouse-wheel" />
-  </svg>
-);
+const mouseAction = event => {
+  const button = typeof event?.button === "number"
+    ? ({ 0: "left", 1: "middle", 2: "right" }[event.button] || "")
+    : String(event?.button || "").toLowerCase();
+  const detail = String(event?.detail || "").toLowerCase();
+  if (!button && ["up", "down", "left", "right"].includes(detail)) return "scroll";
+  if (button === "left" || button === "right") return button;
+  return "middle";
+};
+
+const MouseGlyph = ({ event, compact = false }) => {
+  const action = mouseAction(event);
+  return (
+    <svg
+      className={`underscores-screencast-input-mouse-glyph is-${action}${compact ? " is-compact" : ""}`}
+      viewBox="0 0 24 26"
+      fill="none"
+      aria-hidden="true"
+    >
+      {action === "left" ? <path className="underscores-screencast-input-mouse-button-fill" d="M4 10V9a8 8 0 0 1 8-8v9Z" /> : null}
+      {action === "right" ? <path className="underscores-screencast-input-mouse-button-fill" d="M12 1a8 8 0 0 1 8 8v1h-8Z" /> : null}
+      <rect x="4" y="1" width="16" height="24" rx="8" />
+      <path d="M12 1v9M4.5 10h15" />
+      {action === "scroll" ? <path d="M12 4.5v11" className="underscores-screencast-input-mouse-wheel" /> : null}
+    </svg>
+  );
+};
 
 const HandToolGlyph = ({ compact = false }) => (
   <svg className={`underscores-screencast-input-hand-glyph${compact ? " is-compact" : ""}`} viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -46,15 +61,21 @@ const ToolGlyph = ({ tool, compact = false }) => tool === "hand"
   : <span className={`underscores-screencast-input-tool-glyph${compact ? " is-compact" : ""}`} aria-hidden="true">{screencastToolIcon(tool)}</span>;
 
 const KeyboardGlyph = ({ event, compact = false }) => (
-  <kbd
+  <svg
     className={`underscores-screencast-input-key-glyph${compact ? " is-compact" : ""}`}
+    viewBox="0 0 24 18"
+    fill="none"
     title={compact ? undefined : keyChord(event)}
     aria-label={compact ? "Keyboard input" : `Key ${keyChord(event)}`}
-  >{compact ? "⌨" : keyChord(event)}</kbd>
+    role="img"
+  >
+    <rect x="1.5" y="2.5" width="21" height="13" rx="2" />
+    <path d="M5 6h1M8 6h1M11 6h1M14 6h1M17 6h1M5 9h1M8 9h1M11 9h1M14 9h1M17 9h1M5 12h7M14 12h5" />
+  </svg>
 );
 
 const EventGlyph = ({ event, activeTool, compact = false }) => {
-  if (event?.kind === "pointer") return <MouseGlyph compact={compact} />;
+  if (event?.kind === "pointer") return <MouseGlyph event={event} compact={compact} />;
   if (event?.kind === "key") return <KeyboardGlyph event={event} compact={compact} />;
   if (event?.kind === "tool") {
     return <ToolGlyph tool={event.tool} compact={compact} />;
@@ -153,7 +174,10 @@ export default function ScreencastInputOverlay({ events = [], activeTool = "sele
         </span>
         <span className="underscores-screencast-input-current">
           {currentEvent?.kind === "key"
-            ? (currentDetail ? <strong className="underscores-screencast-input-current-label">{currentDetail}</strong> : null)
+            ? <>
+              <strong className="underscores-screencast-input-current-label">{currentValue}</strong>
+              {currentDetail ? <code>{currentDetail}</code> : null}
+            </>
             : <>
               <strong className="underscores-screencast-input-current-label">{currentValue}</strong>
               {currentDetail ? <code>{currentDetail}</code> : null}

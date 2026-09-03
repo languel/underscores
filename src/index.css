@@ -6690,8 +6690,11 @@ a.iannix-flat-button {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 28px;
-  padding: 3px 4px 3px 6px;
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  box-sizing: border-box;
+  padding: 4px 4px 4px 6px;
   color: var(--underscores-muted, var(--color-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--underscores-foreground, currentColor) 12%, transparent);
   cursor: grab;
@@ -6706,27 +6709,33 @@ a.iannix-flat-button {
   overflow: hidden;
   place-items: center;
   color: var(--underscores-accent, var(--color-primary));
-  flex: 0 0 auto;
+  flex: 0 0 20px;
   font-size: 15px;
 }
-.underscores-screencast-input-current-icon.is-key { width: auto; max-width: 92px; }
-.underscores-screencast-input-mouse-glyph { width: 15px; height: 19px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: .96; }
-.underscores-screencast-input-mouse-glyph .underscores-screencast-input-mouse-wheel { stroke-width: 2; }
-.underscores-screencast-input-mouse-glyph.is-compact { width: 13px; height: 17px; stroke-width: 1.7; }
-.underscores-screencast-input-key-glyph { display: inline-grid; min-width: 20px; max-width: 92px; height: 18px; padding: 0 4px; place-items: center; overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); border: 1px solid color-mix(in srgb, currentColor 45%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--underscores-foreground, currentColor) 8%, transparent); box-shadow: inset 0 -2px 0 color-mix(in srgb, currentColor 20%, transparent); font: 650 10px/1 var(--underscores-ui-font, system-ui, sans-serif); text-overflow: ellipsis; white-space: nowrap; }
-.underscores-screencast-input-key-glyph.is-compact { min-width: 18px; height: 17px; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--underscores-accent, var(--color-primary)); font-size: 11px; }
-.underscores-screencast-input-tool-glyph { display: grid; width: 18px; height: 18px; place-items: center; color: var(--underscores-accent, var(--color-primary)); font-size: 15px; line-height: 1; }
-.underscores-screencast-input-hand-glyph { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
-.underscores-screencast-input-hand-glyph.is-compact { width: 16px; height: 16px; }
-.underscores-screencast-input-current { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 6px; }
-.underscores-screencast-input-current-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); font-size: 13px; font-weight: 700; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-current-icon.is-key { width: 20px; min-width: 20px; max-width: 20px; }
+.underscores-screencast-input-mouse-glyph { display: block; width: 18px; height: 20px; overflow: visible; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; opacity: .96; }
+.underscores-screencast-input-mouse-glyph .underscores-screencast-input-mouse-button-fill { fill: currentColor; opacity: .34; stroke: none; }
+.underscores-screencast-input-mouse-glyph .underscores-screencast-input-mouse-wheel { stroke-width: 2.8; }
+.underscores-screencast-input-key-glyph { display: block; width: 20px; min-width: 20px; height: 18px; padding: 0; overflow: visible; color: var(--underscores-accent, var(--color-primary)); border: 0; background: transparent; box-shadow: none; }
+.underscores-screencast-input-key-glyph rect { stroke: currentColor; stroke-width: 1.35; }
+.underscores-screencast-input-key-glyph path { stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
+.underscores-screencast-input-key-glyph.is-compact { width: 20px; min-width: 20px; height: 18px; padding: 0; }
+.underscores-screencast-input-tool-glyph { display: grid; width: 20px; height: 20px; place-items: center; color: var(--underscores-accent, var(--color-primary)); font-size: 18px; line-height: 1; font-variant-emoji: text; }
+.underscores-screencast-input-hand-glyph { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+.underscores-screencast-input-hand-glyph.is-compact { width: 20px; height: 20px; }
+.underscores-screencast-input-current { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; }
+.underscores-screencast-input-current-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); font-size: 15px; font-weight: 700; letter-spacing: .01em; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-current code { overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
-.underscores-screencast-input-active-tool { display: grid; width: 18px; height: 18px; margin-left: auto; place-items: center; color: var(--underscores-accent, var(--color-primary)); flex: 0 0 auto; }
-.underscores-screencast-input-active-tool > span:first-child { display: grid; width: 18px; height: 18px; place-items: center; font-size: 15px; line-height: 1; }
+.underscores-screencast-input-active-tool { display: grid; width: 20px; height: 20px; margin-left: auto; place-items: center; color: var(--underscores-accent, var(--color-primary)); flex: 0 0 20px; }
+.underscores-screencast-input-active-tool > span:first-child { display: grid; width: 20px; height: 20px; place-items: center; font-size: 18px; line-height: 1; font-variant-emoji: text; }
 .underscores-screencast-input-header button {
-  width: 17px;
-  height: 17px;
+  display: grid;
+  width: 20px;
+  height: 20px;
   padding: 0;
+  place-items: center;
+  font-size: 15px;
+  line-height: 1;
   color: inherit;
   border: 0;
   background: transparent;
@@ -6736,15 +6745,14 @@ a.iannix-flat-button {
 .underscores-screencast-input-header button:hover { color: var(--underscores-foreground, var(--color-primary)); background: var(--underscores-highlight, transparent); }
 .underscores-screencast-input-events { display: grid; gap: 0; padding: 2px 5px 3px; }
 .underscores-screencast-input-event { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 17px; color: var(--underscores-muted, var(--color-secondary)); opacity: .72; }
-.underscores-screencast-input-event-icon { display: grid; width: 18px; height: 18px; place-items: center; color: var(--underscores-accent, var(--color-primary)); text-align: center; flex: 0 0 18px; }
+.underscores-screencast-input-event-icon { display: grid; width: 20px; height: 20px; place-items: center; color: var(--underscores-accent, var(--color-primary)); text-align: center; flex: 0 0 20px; }
 .underscores-screencast-input-event-label { overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-event code { margin-left: auto; overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; opacity: .82; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-empty { padding: 2px 0; color: var(--underscores-muted, var(--color-secondary)); opacity: .75; }
 .underscores-screencast-input.is-minimal { width: min(300px, calc(100vw - 16px)); }
-.underscores-screencast-input.is-minimal .underscores-screencast-input-header { min-height: 26px; padding-top: 2px; padding-bottom: 2px; }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-header { height: 34px; min-height: 34px; max-height: 34px; padding-top: 3px; padding-bottom: 3px; }
 .underscores-screencast-input.is-minimal .underscores-screencast-input-current-icon { width: 20px; height: 20px; }
-.underscores-screencast-input.is-minimal .underscores-screencast-input-mouse-glyph { width: 14px; height: 18px; }
-.underscores-screencast-input.is-minimal .underscores-screencast-input-current-label { font-size: 12px; }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-current-label { font-size: 14px; }
 
 .iannix-transport {
   --transport-bg: var(--underscores-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));
@@ -7693,6 +7701,11 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .history-panel button:hover { background: var(--button-hover-bg, rgba(128, 128, 128, 0.14)); }
 .history-icon-button:disabled,
 .history-panel button:disabled { cursor: default; opacity: 0.35; }
+.history-transport .history-icon-button.recording {
+  color: #d35b5b;
+  border-color: color-mix(in srgb, #d35b5b 60%, var(--border-color, rgba(128, 128, 128, 0.3)));
+}
+.history-transport .history-icon-button.recording:hover { background: color-mix(in srgb, #d35b5b 12%, transparent); }
 
 .history-record-icon,
 .history-stop-icon,
@@ -7704,6 +7717,19 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .history-pause-icon { width: 8px; height: 10px; border-inline: 3px solid currentColor; }
 
 .history-seek { min-width: 48px; flex: 1 1 auto; }
+.history-transport-status {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .03em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.history-transport-status.recording { color: #d35b5b; }
+.history-transport-status.playing { color: var(--color-secondary); }
 .history-time { min-width: 54px; color: var(--color-secondary); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; }
 .history-options { flex-wrap: wrap; justify-content: space-between; }
 .history-options label { display: inline-flex; align-items: center; gap: 5px; color: var(--color-secondary); }
@@ -7766,6 +7792,9 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .history-action-copy small { color: var(--color-secondary); font-size: 9px; }
 .history-action-tools { display: flex; align-items: center; gap: 2px; padding-right: 4px; }
 .history-action-tools .history-icon-button { width: 22px; min-height: 22px; border: 0; }
+.history-selection-summary { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.history-selection-summary .history-section-heading { margin: 0; }
+.history-selection-summary > button { align-self: flex-start; }
 
 .properties-panel,
 .outliner-panel {
