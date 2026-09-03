@@ -5,6 +5,10 @@ import {
   isGifMediaSource,
   isMediaStreamElement,
   MEDIA_STREAM_KINDS,
+  MEDIA_BACKGROUND_MODES,
+  MEDIA_BLEND_MODES,
+  MEDIA_COMPOSITE_MODES,
+  MEDIA_KEY_MODES,
   normalizeMediaStreamConfig,
   objectBoundsTargetLabel,
 } from "./mediaStream.js";
@@ -422,6 +426,60 @@ const SourceTransportControls = ({ source, onPatch }) => {
   </div>;
 };
 
+const SourceCompositionControls = ({ source, onPatch }) => {
+  const isAudio = source.media?.mediaType === "audio";
+  const canKey = !isAudio && source.media?.mediaType !== "model";
+  const key = source.key;
+  return <details className="media-stream-panel-composition" open>
+    <summary>Composition defaults</summary>
+    <div className="media-stream-panel-composition-grid">
+      <label className="media-stream-panel-field" {...infoProps("Layer", "Choose whether previews of this source sit above or below native canvas objects. Existing previews keep their own layer setting.")}>
+        <span>Layer</span>
+        <select value={source.compositeMode} onChange={event => onPatch({ compositeMode: event.target.value })}>
+          {MEDIA_COMPOSITE_MODES.map(mode => <option key={mode} value={mode}>{mode === "underlay" ? "Below objects" : "Above objects"}</option>)}
+        </select>
+      </label>
+      <label className="media-stream-panel-field" {...infoProps("Opacity", "Adjust the composited media surface without changing the Excalidraw object's geometry or selection opacity.")}>
+        <span>Opacity %</span>
+        <NumericInput min="0" max="100" step="5" value={Math.round(source.compositeOpacity * 100)} defaultValue={100} onCommit={value => onPatch({ compositeOpacity: value / 100 })} />
+      </label>
+      <label className="media-stream-panel-field" {...infoProps("Blend", "Blend the source surface with the visual layers beneath it. The default Normal path is cheapest.")}>
+        <span>Blend</span>
+        <select value={source.blendMode} onChange={event => onPatch({ blendMode: event.target.value })}>
+          {MEDIA_BLEND_MODES.map(mode => <option key={mode} value={mode}>{mode === "soft-light" ? "Soft light" : mode[0].toUpperCase() + mode.slice(1)}</option>)}
+        </select>
+      </label>
+      <label className="media-stream-panel-field" {...infoProps("Background", "Choose the host surface behind the media pixels. Transparent preserves filtered webcam/canvas alpha.")}>
+        <span>Background</span>
+        <select value={source.backgroundMode} onChange={event => onPatch({ backgroundMode: event.target.value })}>
+          {MEDIA_BACKGROUND_MODES.map(mode => <option key={mode} value={mode}>{mode === "transparent" ? "Transparent" : mode === "theme" ? "Theme surface" : "Solid"}</option>)}
+        </select>
+      </label>
+      {canKey && <label className="media-stream-panel-field" {...infoProps("Key", "Recover a transparent-looking silhouette when the browser transport flattened producer alpha. Black and Green use presets; Picked color uses the color below.")}>
+        <span>Key</span>
+        <select value={key.mode} onChange={event => onPatch({ key: { mode: event.target.value } })}>
+          {MEDIA_KEY_MODES.map(mode => <option key={mode} value={mode}>{mode === "off" ? "Off" : mode === "black" ? "Black" : mode === "green" ? "Green" : "Picked color"}</option>)}
+        </select>
+      </label>}
+      {canKey && key.mode === "color" && <label className="media-stream-panel-field">
+        <span>Key color</span>
+        <input type="color" value={key.color} onChange={event => onPatch({ key: { color: event.target.value } })} aria-label="Media key color" />
+      </label>}
+      {canKey && key.mode !== "off" && <>
+        <label className="media-stream-panel-field">
+          <span>Threshold</span>
+          <input type="range" min="0" max="1" step="0.01" value={key.threshold} onChange={event => onPatch({ key: { threshold: Number(event.target.value) } })} aria-label="Media key threshold" />
+        </label>
+        <label className="media-stream-panel-field">
+          <span>Softness</span>
+          <input type="range" min="0.01" max="0.5" step="0.01" value={key.softness} onChange={event => onPatch({ key: { softness: Number(event.target.value) } })} aria-label="Media key softness" />
+        </label>
+      </>}
+    </div>
+    <div className="media-stream-panel-note">Alpha is preserved when the source provides a real transparent canvas. A native webcam/video track is normally opaque, so use Key for black/green/picked-color backgrounds.</div>
+  </details>;
+};
+
 const createSourcePreviewMedia = () => ({ playing: false, muted: true, loop: true, playbackRate: 1, linkTransport: false });
 
 const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAssignPreview, onPreviewPlaybackChange, children, status, transportTime = 0, transportPlaying = false }) => {
@@ -491,6 +549,7 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
     </div></details>}
   </div>}
   <SourceTransportControls source={isModel ? source : previewSource} onPatch={isModel ? onPatch : patchPreviewMedia} />
+  <SourceCompositionControls source={source} onPatch={onPatch} />
   <SourcePreviewPlaybar source={previewSource} runtimeId={previewRuntimeId} />
   <div className="media-stream-panel-output" role="group" aria-label="Published image stream settings">
     <label className="media-stream-panel-field"><span>FPS</span>

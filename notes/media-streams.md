@@ -78,6 +78,46 @@ the core opacity slider and a CSS blend-mode selector (`normal`, `multiply`, `sc
 and the other standard compositing modes). These values belong to the instance; changing them does
 not change the catalog source or another instance created from it.
 
+Visual instances also share the Livecode compositor vocabulary: **Layer** places a preview above or
+below native canvas objects, **Background** chooses a transparent, theme, or solid host surface,
+and **Opacity** controls the composited surface independently from the Excalidraw object's
+selection/geometry opacity. Source entries expose the same controls as **Composition defaults** for
+new previews; an existing preview keeps its own authored settings. Underlay previews make the
+Excalidraw host transparent automatically, so the media surface remains visible beneath strokes and
+other native objects. The source and preview paths use the same normalized `blendMode` values, so
+`normal` stays on the cheap source-over path while screen, multiply, and the other CSS modes are
+applied only when requested.
+
+Processed camera, canvas, image, and video outputs are rendered into an alpha-enabled canvas and
+published as the `media:<source-id>` image stream. The runtime image sample includes `alpha: true`
+when that surface can carry transparency, so trusted scripts and downstream stream processors can
+keep the distinction instead of treating every frame as an opaque bitmap. Native camera/video
+elements report `alpha: false` unless an explicit key pass created transparency; canvas and image
+sources retain their source alpha. A browser `MediaStream`
+obtained from the output canvas uses the same surface (`runtime.stream()`), which is the hand-off
+for recorder and external capture integrations. A trusted script can inspect the published contract
+without copying pixels into scene data:
+
+```js
+const camera = __.streams.get("media:camera");
+const frame = camera?.snapshot();
+if (frame?.kind === "image" && frame.alpha) {
+  // frame.image is the live alpha-capable canvas/video surface.
+  console.log(frame.width, frame.height, "with alpha");
+}
+const output = camera?.stream?.(); // a browser MediaStream for a capture bridge
+```
+
+The `alpha` flag describes the processed output surface; it is not a promise that the original
+device track carried transparency. A native `getUserMedia` video track is normally opaque, and
+some browser/native camera bridges flatten BGRA alpha before JavaScript receives the frame. If a
+producer such as SketchCam already publishes a transparent virtual-camera frame, keep that alpha
+enabled in the producer and use the output-canvas/runtime-stream path when handing the result to
+another capture application such as TouchDesigner. If the browser input has already been flattened,
+turn on **Key** and choose **Black**, **Green**, or **Picked color**, then tune **Threshold** and
+**Softness**. Keying is opt-in and runs only on the processed output, so ordinary alpha frames
+avoid the readback cost.
+
 When transport linking is enabled, the main playhead drives the clip modulo its duration while
 looping, or holds it at the end when looping is off. The runtime avoids corrective seeks during
 normal playback. Audio and video loop boundaries are restarted through a short edge fade rather

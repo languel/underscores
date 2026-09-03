@@ -11,7 +11,7 @@ import {
 import { getEditableSvgPathNodes } from "./svgPathGeometry.js";
 import { buildSvgTimingGraph } from "./svgAnimation.js";
 import { getSvgNodeStyleCascade, updateStructuredSvgStyleDeclaration } from "./svgStyleModel.js";
-import { isGifMediaSource, isMediaStreamElement, MEDIA_BLEND_MODES, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
+import { isGifMediaSource, isMediaStreamElement, MEDIA_BACKGROUND_MODES, MEDIA_BLEND_MODES, MEDIA_COMPOSITE_MODES, MEDIA_KEY_MODES, MEDIA_STREAM_KINDS, normalizeMediaStreamConfig, patchMediaStreamConfig } from "./mediaStream.js";
 import { getScoreData, normalizeIannixData } from "./iannixEngine.js";
 import { createTimeValue } from "./timeValue.js";
 import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
@@ -393,10 +393,14 @@ const mediaPlaybackFieldCount = (element, query, mediaSources = []) => {
   const stream = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
   const sourceId = mediaSourceReferenceForElement(stream);
   const source = mediaSources.find(candidate => candidate.id === sourceId);
-  if (!source || !isAnimatedMediaSource(source)) return 0;
-  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", "volume", "opacity", "blend", "mode", name]
+  if (!source) return 0;
+  const isInstance = stream.kind === MEDIA_STREAM_KINDS.PREVIEW;
+  const canVisualBlend = isInstance;
+  const animated = isAnimatedMediaSource(source);
+  if (!animated && !canVisualBlend) return 0;
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", "volume", "opacity", "blend", "mode", "layer", "background", "key", "threshold", "softness", name]
     .some(value => value.includes(query.needle));
-  return matches("transport") ? 9 : 0;
+  return matches("transport") ? (canVisualBlend ? 16 : 9) : 0;
 };
 
 const MediaPlaybackControls = ({ element, query, onChange, mediaSources = [], onPatchMediaSource }) => {
@@ -404,11 +408,15 @@ const MediaPlaybackControls = ({ element, query, onChange, mediaSources = [], on
   const stream = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
   const sourceId = mediaSourceReferenceForElement(stream);
   const source = mediaSources.find(candidate => candidate.id === sourceId);
-  if (!source || !isAnimatedMediaSource(source)) return null;
-  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", "volume", "opacity", "blend", "mode", name]
+  if (!source) return null;
+  const isInstance = stream.kind === MEDIA_STREAM_KINDS.PREVIEW;
+  const canVisualBlend = isInstance;
+  const animated = isAnimatedMediaSource(source);
+  if (!animated && !canVisualBlend) return null;
+  const matches = name => !query?.needle || ["media", "transport", "play", "pause", "mute", "loop", "speed", "link", "volume", "opacity", "blend", "mode", "layer", "background", "key", "threshold", "softness", name]
     .some(value => value.includes(query.needle));
   if (query?.needle && !matches("transport")) return null;
-  const isInstance = stream.kind === MEDIA_STREAM_KINDS.PREVIEW;
+  const showPlayback = animated && source.media?.mediaType !== "model";
   const media = isInstance ? stream.media : source.media;
   const update = patch => isInstance
     ? onChange?.(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { media: patch }))
@@ -420,15 +428,14 @@ const MediaPlaybackControls = ({ element, query, onChange, mediaSources = [], on
   const canSetRate = !isCamera && isAnimatedMediaSource(source)
     && (source.media.mediaType !== "image" || isGifMediaSource(source));
   const canVolume = isInstance && !isCamera && ["audio", "video"].includes(source.media.mediaType);
-  const canVisualBlend = isInstance && source.media.mediaType !== "audio";
-  const opacity = Math.max(0, Math.min(100, Number.isFinite(Number(element.opacity)) ? Number(element.opacity) : 100));
+  const key = stream.key;
   const blendMode = stream.blendMode || "normal";
   const updateElement = (path, value) => onChange?.(path, value);
   return (
     <details className="properties-group properties-media-playback-group" open>
-      <summary><span>media transport</span><small>{isInstance ? "canvas instance" : source.name}</small></summary>
+      <summary><span>{showPlayback ? "media transport" : "media composition"}</span><small>{isInstance ? "canvas instance" : source.name}</small></summary>
       <div className="properties-children">
-        <div className="properties-media-transport" role="group" aria-label="Media transport">
+        {showPlayback && <div className="properties-media-transport" role="group" aria-label="Media transport">
           <button
             type="button"
             className={`iannix-flat-button media-source-play-toggle ${isPlaying ? "active" : ""}`}
@@ -454,12 +461,12 @@ const MediaPlaybackControls = ({ element, query, onChange, mediaSources = [], on
             <input type="checkbox" checked={media.linkTransport === true} onChange={event => update({ linkTransport: event.target.checked })} />
             <span>Link transport</span>
           </label>
-        </div>
-        {canSetRate && <div className="properties-row editable">
+        </div>}
+        {showPlayback && canSetRate && <div className="properties-row editable">
           <span>speed</span>
           <NumericInput min="-8" max="8" step="0.1" value={media.playbackRate} defaultValue={1} onCommit={playbackRate => update({ playbackRate })} />
         </div>}
-        {canVolume && <div className="properties-row editable properties-media-slider-row">
+        {showPlayback && canVolume && <div className="properties-row editable properties-media-slider-row">
           <span>volume</span>
           <input
             type="range"
@@ -478,9 +485,9 @@ const MediaPlaybackControls = ({ element, query, onChange, mediaSources = [], on
             min="0"
             max="100"
             step="1"
-            value={opacity}
-            onChange={event => updateElement(["opacity"], Number(event.target.value))}
-            aria-label="Media opacity"
+            value={Math.round(stream.compositeOpacity * 100)}
+            onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { compositeOpacity: Number(event.target.value) / 100 }))}
+            aria-label="Media surface opacity"
           />
         </div>}
         {canVisualBlend && <div className="properties-row editable">
@@ -489,6 +496,38 @@ const MediaPlaybackControls = ({ element, query, onChange, mediaSources = [], on
             {MEDIA_BLEND_MODES.map(mode => <option key={mode} value={mode}>{mode}</option>)}
           </select>
         </div>}
+        {canVisualBlend && <div className="properties-row editable">
+          <span>layer</span>
+          <select value={stream.compositeMode} onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { compositeMode: event.target.value }))} aria-label="Media layer">
+            {MEDIA_COMPOSITE_MODES.map(mode => <option key={mode} value={mode}>{mode === "underlay" ? "Below objects" : "Above objects"}</option>)}
+          </select>
+        </div>}
+        {canVisualBlend && <div className="properties-row editable">
+          <span>background</span>
+          <select value={stream.backgroundMode} onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { backgroundMode: event.target.value }))} aria-label="Media background">
+            {MEDIA_BACKGROUND_MODES.map(mode => <option key={mode} value={mode}>{mode === "transparent" ? "Transparent" : mode === "theme" ? "Theme surface" : "Solid"}</option>)}
+          </select>
+        </div>}
+        {canVisualBlend && <div className="properties-row editable">
+          <span>key</span>
+          <select value={key.mode} onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { key: { mode: event.target.value } }))} aria-label="Media color key">
+            {MEDIA_KEY_MODES.map(mode => <option key={mode} value={mode}>{mode === "off" ? "Off" : mode === "black" ? "Black" : mode === "green" ? "Green" : "Picked color"}</option>)}
+          </select>
+        </div>}
+        {canVisualBlend && key.mode === "color" && <div className="properties-row editable">
+          <span>key color</span>
+          <input type="color" value={key.color} onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { key: { color: event.target.value } }))} aria-label="Media key color" />
+        </div>}
+        {canVisualBlend && key.mode !== "off" && <>
+          <div className="properties-row editable properties-media-slider-row">
+            <span>key threshold</span>
+            <input type="range" min="0" max="1" step="0.01" value={key.threshold} onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { key: { threshold: Number(event.target.value) } }))} aria-label="Media key threshold" />
+          </div>
+          <div className="properties-row editable properties-media-slider-row">
+            <span>key softness</span>
+            <input type="range" min="0.01" max="0.5" step="0.01" value={key.softness} onChange={event => updateElement(["customData", "underscoresMediaStream"], patchMediaStreamConfig(stream, { key: { softness: Number(event.target.value) } }))} aria-label="Media key softness" />
+          </div>
+        </>}
       </div>
     </details>
   );

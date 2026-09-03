@@ -176,7 +176,7 @@ const UnderscoresApiGuide = () => (
         <div><dt><code>api.relations</code></dt><dd>Read and edit the versioned relationship graph, resolve stable endpoints, claim runtime writer channels, and register typed stream adapters.</dd></div>
         <div><dt><code>api.physics</code></dt><dd>Create bodies, populations, and constraints; control system clocks; query, grab, impulse, materialize, reset, apply, and snapshot the physics runtime.</dd></div>
         <div><dt><code>api.mixer</code></dt><dd>Read the mixer or add, update, and remove tracks.</dd></div>
-        <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
+        <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Image snapshots expose <code>sample.alpha</code> when the frame can carry transparency, and active image entries expose <code>stream()</code> for a browser capture bridge. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
       </dl>
     </details>
     <pre><code>{`// Follow the current Excalidraw stroke
