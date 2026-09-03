@@ -108,7 +108,13 @@ export default function TixyFrame({ element, config, scriptRuntimeRef, transport
     const handlePointerUp = () => { pointer.down = false; };
     const handleVisibility = () => { pageVisible = document.visibilityState !== "hidden"; };
     const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || {};
-    const canvasApi = createScriptCanvasApi(scriptRuntimeRef, { onSubscription: unsubscribe => subscriptions.push(unsubscribe) });
+    const canvasApi = createScriptCanvasApi(scriptRuntimeRef, {
+      onSubscription: unsubscribe => subscriptions.push(unsubscribe),
+      getTime: () => {
+        const scoped = Number(transportRef.current?.time);
+        return Number.isFinite(scoped) ? scoped : undefined;
+      },
+    });
     let appearanceSnapshot = appearance();
     const params = resolveScriptParameterValues(
       parseScriptParameters(config.source, { values: config.parameters || {} }),

@@ -26,7 +26,12 @@ const disposeSceneResources = scene => {
 };
 
 const createBridge = (element, config, scriptRuntimeRef, transportRef) => {
-  const canvas = createScriptCanvasApi(scriptRuntimeRef);
+  const canvas = createScriptCanvasApi(scriptRuntimeRef, {
+    getTime: () => {
+      const scoped = Number(transportRef.current?.time);
+      return Number.isFinite(scoped) ? scoped : undefined;
+    },
+  });
   const params = resolveScriptParameterValues(
     parseScriptParameters(config.source, { values: config.parameters || {} }),
     scriptRuntimeRef,

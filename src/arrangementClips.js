@@ -1,12 +1,44 @@
 import { createTimeValue, resolveTimeValue } from "./timeValue.js";
 
-export const UNDERSCORES_ARRANGEMENT_VERSION = 1;
+export const UNDERSCORES_ARRANGEMENT_VERSION = 2;
 
 const finite = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
 const positive = (value, fallback = 0) => Math.max(0, finite(value, fallback));
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 const wrap = (value, length) => length > 0 ? ((value % length) + length) % length : 0;
 const makeId = prefix => `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${Math.random().toString(36).slice(2)}`}`;
+
+const normalizeTimelineTrack = (value, index = 0) => ({
+  id: String(value?.id || makeId("track")),
+  name: String(value?.name || `Track ${index + 1}`),
+  order: finite(value?.order, index),
+  enabled: value?.enabled !== false,
+  muted: value?.muted === true,
+  solo: value?.solo === true,
+});
+
+const timelineSourceKind = value => ["history", "element", "command", "media", "livecode"].includes(value) ? value : "element";
+
+export const normalizeTimelineClip = (value = {}, context) => {
+  const base = normalizeArrangementClip(value, context);
+  const source = timelineSourceKind(value.source || value.sourceKind || (value.historyAction ? "history" : value.elementId ? "element" : "command"));
+  return {
+    id: String(value.id || makeId("timeline_clip")),
+    trackId: String(value.trackId || "track-1"),
+    source,
+    label: String(value.label || value.name || value.commandId || value.historyAction?.commandId || value.elementId || "Clip"),
+    elementId: value.elementId ? String(value.elementId) : null,
+    historyActionId: value.historyActionId ? String(value.historyActionId) : value.actionId ? String(value.actionId) : null,
+    commandId: value.commandId ? String(value.commandId) : value.historyAction?.commandId ? String(value.historyAction.commandId) : null,
+    historyAction: clone(value.historyAction || value.action || null),
+    enabled: value.enabled !== false,
+    timing: base.timing,
+    recording: base.recording,
+  };
+};
+
+export const createTimelineTrack = (value = {}, index = 0) => normalizeTimelineTrack(value, index);
+export const createTimelineClip = (value = {}, context) => normalizeTimelineClip(value, context);
 
 const normalizeTake = (value, index = 0) => ({
   id: String(value?.id || makeId("take")),
@@ -20,10 +52,23 @@ const normalizeTake = (value, index = 0) => ({
 
 export const createArrangementState = (value = {}) => {
   const takes = (Array.isArray(value.takes) ? value.takes : []).map(normalizeTake);
+  const timelineMode = value.timelineMode === "clips" ? "clips" : "objects";
+  const rawClipTracks = Array.isArray(value.clipTracks) ? value.clipTracks : Array.isArray(value.timelineTracks) ? value.timelineTracks : [];
+  const clipTracks = (rawClipTracks.length || timelineMode !== "clips"
+    ? rawClipTracks
+    : [
+        { id: "track-1", name: "Track 1", order: 0 },
+        { id: "track-2", name: "Track 2", order: 1 },
+        { id: "track-3", name: "Track 3", order: 2 },
+      ]).map(normalizeTimelineTrack);
+  const timelineClips = (Array.isArray(value.timelineClips) ? value.timelineClips : Array.isArray(value.clips) ? value.clips : []).map(clip => normalizeTimelineClip(clip));
   return {
     version: UNDERSCORES_ARRANGEMENT_VERSION,
     takes,
     laneOrder: [...new Set((Array.isArray(value.laneOrder) ? value.laneOrder : []).map(String))],
+    timelineMode,
+    clipTracks,
+    timelineClips,
     recording: {
       mode: value.recording?.mode === "step" ? "step" : "rolling",
       stepValue: createTimeValue(value.recording?.stepValue || "1 f"),
@@ -224,6 +269,64 @@ export const createArrangementIndex = (elements = [], arrangementState = {}, opt
   lanes.sort((a, b) => (laneRank.get(a.elementId) ?? Infinity) - (laneRank.get(b.elementId) ?? Infinity));
   clips.sort((a, b) => a.clip.timing.start - b.clip.timing.start);
   return { state, elementById, lanes, clips };
+};
+
+// Clip-oriented timelines keep their lanes independent from authored canvas
+// objects. A clip may still target an element (Livecode/media playback), but
+// its visual lane and ordering belong to the user's timeline tracks.
+export const createTimelineClipIndex = (arrangementState = {}, options = {}) => {
+  const state = createArrangementState(arrangementState);
+  const tracks = state.clipTracks
+    .map((track, index) => ({ ...track, order: finite(track.order, index), clips: [] }))
+    .sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+  const trackById = new Map(tracks.map(track => [track.id, track]));
+  if (!tracks.length && state.timelineMode === "clips") {
+    const fallback = createTimelineTrack({ id: "track-1", name: "Track 1", order: 0 });
+    tracks.push({ ...fallback, clips: [] });
+    trackById.set(fallback.id, tracks[0]);
+  }
+  const clips = state.timelineClips.map(value => {
+    const clip = normalizeTimelineClip(value, options.context);
+    const track = trackById.get(clip.trackId) || tracks[0];
+    if (track) track.clips.push(clip);
+    return { clip, trackId: track?.id || clip.trackId };
+  });
+  tracks.forEach(track => {
+    track.clips.sort((left, right) => left.timing.start - right.timing.start || left.id.localeCompare(right.id));
+    track.schedule = createLaneSchedule(track.clips, options.context);
+  });
+  return { state, tracks, clips, trackById };
+};
+
+export const selectTimelineClipAtTime = (clips, transportTime, options = {}) => {
+  const state = createArrangementState(options.arrangementState);
+  const tracks = new Map(state.clipTracks.map(track => [track.id, track]));
+  const soloed = new Set(state.clipTracks.filter(track => track.solo && track.enabled !== false && !track.muted).map(track => track.id));
+  const candidates = (Array.isArray(clips) ? clips : [])
+    .map(value => {
+      const clip = value?.clip || value;
+      return { clip: normalizeTimelineClip(clip, options.context), state: evaluateClipAtTime(clip, transportTime, options) };
+    })
+    .filter(({ clip, state: timing }) => {
+      const track = tracks.get(clip.trackId);
+      if (track && (!track.enabled || track.muted)) return false;
+      if (soloed.size && !soloed.has(clip.trackId)) return false;
+      return timing.active;
+    });
+  candidates.sort((left, right) => right.state.start - left.state.start || right.clip.id.localeCompare(left.clip.id));
+  return candidates[0] || null;
+};
+
+export const getTimelineProjectEnd = (arrangementState = {}, options = {}) => {
+  const state = createArrangementState(arrangementState);
+  if (state.timelineMode !== "clips") return positive(options.minimum, 0);
+  const index = createTimelineClipIndex(state, options);
+  return index.clips.reduce((end, entry) => {
+    const timing = resolveClipTiming(entry.clip, options.context);
+    return entry.clip.enabled && timing.durationMode === "fixed"
+      ? Math.max(end, timing.start + timing.duration)
+      : end;
+  }, positive(options.minimum, 0));
 };
 
 export const migrateGestureToArrangement = (element, context) => {

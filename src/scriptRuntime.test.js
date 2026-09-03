@@ -64,6 +64,25 @@ test("script canvas resolves canvas objects by id, label, and IanniX group", () 
   assert.equal(canvas.events.latest("trigger.*").elementId, "trigger-1");
 });
 
+test("script canvas can expose a clip-scoped transport clock", () => {
+  let scoreTime = 12;
+  let clipTime = 0.75;
+  const runtimeRef = {
+    current: {
+      getElements: () => [],
+      getTime: () => scoreTime,
+      getTimeContext: () => ({ tempo: 120 }),
+    },
+  };
+  const canvas = createScriptCanvasApi(runtimeRef, {
+    getTime: () => clipTime,
+  });
+  assert.equal(canvas.transport.time, 0.75);
+  clipTime = 1.5;
+  assert.equal(canvas.transport.time, 1.5);
+  assert.equal(createScriptCanvasApi(runtimeRef).transport.time, 12);
+});
+
 test("script canvas can emit namespaced runtime events", () => {
   const emitted = [];
   const runtimeRef = {
