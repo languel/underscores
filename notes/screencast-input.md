@@ -15,13 +15,15 @@ The overlay is off by default so a new board remains uncluttered. It can be enab
 
 ## What it shows
 
-The most recent six cues are shown, newest last:
+The most recent four cues are shown, newest last:
 
 - shortcut presses, including the resolved command name when a registered Underscores shortcut matches;
-- left, middle, right, pen, or touch clicks;
+- left, middle, right, pen, or touch clicks, including modifier chords such as **⌘ left click**;
 - a completed press/move/release as one drag cue;
 - throttled wheel/trackpad scroll direction; and
 - active canvas tool changes such as **Pencil**, **Hand**, **Eraser**, or a shape tool.
+
+Modifier-only key presses are folded into the next key or pointer gesture, so holding Command for a click does not create a separate `Meta` row. The current cue is emphasized with a small keyboard keycap or mouse drawing; when the full overlay is enabled, the preceding cues form the optional trail. **Minimal screencast input** hides that trail and keeps only the current cue.
 
 High-frequency `pointermove` samples are deliberately omitted. When **History → Canvas / performance** input is enabled, History still keeps the complete bounded gesture samples as one replayable input clip. UI events remain separately controlled by **History → UI events**, so a tutorial can capture both while a performance take records only canvas gestures.
 

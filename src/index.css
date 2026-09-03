@@ -6674,7 +6674,7 @@ a.iannix-flat-button {
 .underscores-screencast-input {
   position: fixed;
   z-index: 2500;
-  width: min(340px, calc(100vw - 16px));
+  width: min(300px, calc(100vw - 16px));
   padding: 0;
   color: var(--underscores-foreground, var(--color-primary));
   background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color, #171719)) 86%, transparent);
@@ -6690,8 +6690,8 @@ a.iannix-flat-button {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 31px;
-  padding: 4px 4px 4px 7px;
+  min-height: 28px;
+  padding: 3px 4px 3px 6px;
   color: var(--underscores-muted, var(--color-secondary));
   border-bottom: 1px solid color-mix(in srgb, var(--underscores-foreground, currentColor) 12%, transparent);
   cursor: grab;
@@ -6701,17 +6701,28 @@ a.iannix-flat-button {
 .underscores-screencast-input.is-dragging .underscores-screencast-input-header { cursor: grabbing; }
 .underscores-screencast-input-current-icon {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
   place-items: center;
   color: var(--underscores-accent, var(--color-primary));
+  flex: 0 0 auto;
   font-size: 15px;
 }
+.underscores-screencast-input-current-icon.is-key { width: auto; max-width: 92px; }
+.underscores-screencast-input-mouse-glyph { width: 15px; height: 19px; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; opacity: .96; }
+.underscores-screencast-input-mouse-glyph .underscores-screencast-input-mouse-wheel { stroke-width: 2; }
+.underscores-screencast-input-mouse-glyph.is-compact { width: 13px; height: 17px; stroke-width: 1.7; }
+.underscores-screencast-input-key-glyph { display: inline-grid; min-width: 20px; max-width: 92px; height: 18px; padding: 0 4px; place-items: center; overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); border: 1px solid color-mix(in srgb, currentColor 45%, transparent); border-radius: 4px; background: color-mix(in srgb, var(--underscores-foreground, currentColor) 8%, transparent); box-shadow: inset 0 -2px 0 color-mix(in srgb, currentColor 20%, transparent); font: 650 10px/1 var(--underscores-ui-font, system-ui, sans-serif); text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-key-glyph.is-compact { min-width: 18px; height: 17px; padding: 0; border: 0; background: transparent; box-shadow: none; color: var(--underscores-accent, var(--color-primary)); font-size: 11px; }
+.underscores-screencast-input-tool-glyph { display: grid; width: 18px; height: 18px; place-items: center; color: var(--underscores-accent, var(--color-primary)); font-size: 15px; line-height: 1; }
+.underscores-screencast-input-hand-glyph { width: 18px; height: 18px; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
+.underscores-screencast-input-hand-glyph.is-compact { width: 16px; height: 16px; }
 .underscores-screencast-input-current { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 6px; }
-.underscores-screencast-input-current-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); font-size: 12px; font-weight: 650; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-current-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); font-size: 13px; font-weight: 700; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-current code { overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
-.underscores-screencast-input-active-tool { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; color: var(--underscores-muted, var(--color-secondary)); font-size: 10px; white-space: nowrap; }
-.underscores-screencast-input-active-tool > span:first-child { color: var(--underscores-accent, var(--color-primary)); font-size: 13px; }
+.underscores-screencast-input-active-tool { display: grid; width: 18px; height: 18px; margin-left: auto; place-items: center; color: var(--underscores-accent, var(--color-primary)); flex: 0 0 auto; }
+.underscores-screencast-input-active-tool > span:first-child { display: grid; width: 18px; height: 18px; place-items: center; font-size: 15px; line-height: 1; }
 .underscores-screencast-input-header button {
   width: 17px;
   height: 17px;
@@ -6723,16 +6734,17 @@ a.iannix-flat-button {
   pointer-events: auto;
 }
 .underscores-screencast-input-header button:hover { color: var(--underscores-foreground, var(--color-primary)); background: var(--underscores-highlight, transparent); }
-.underscores-screencast-input-events { display: grid; gap: 1px; padding: 3px 5px 4px; }
-.underscores-screencast-input-event { display: flex; align-items: baseline; gap: 5px; min-width: 0; min-height: 15px; color: var(--underscores-muted, var(--color-secondary)); }
-.underscores-screencast-input-event-icon { width: 13px; color: var(--underscores-accent, var(--color-primary)); text-align: center; }
-.underscores-screencast-input-event-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); text-overflow: ellipsis; white-space: nowrap; }
-.underscores-screencast-input-event code { margin-left: auto; overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-events { display: grid; gap: 0; padding: 2px 5px 3px; }
+.underscores-screencast-input-event { display: flex; align-items: center; gap: 5px; min-width: 0; min-height: 17px; color: var(--underscores-muted, var(--color-secondary)); opacity: .72; }
+.underscores-screencast-input-event-icon { display: grid; width: 18px; height: 18px; place-items: center; color: var(--underscores-accent, var(--color-primary)); text-align: center; flex: 0 0 18px; }
+.underscores-screencast-input-event-label { overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font-size: 10px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-event code { margin-left: auto; overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; opacity: .82; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-empty { padding: 2px 0; color: var(--underscores-muted, var(--color-secondary)); opacity: .75; }
-.underscores-screencast-input.is-minimal { width: min(360px, calc(100vw - 16px)); }
+.underscores-screencast-input.is-minimal { width: min(300px, calc(100vw - 16px)); }
 .underscores-screencast-input.is-minimal .underscores-screencast-input-header { min-height: 26px; padding-top: 2px; padding-bottom: 2px; }
-.underscores-screencast-input.is-minimal .underscores-screencast-input-current-icon { width: 16px; height: 16px; font-size: 13px; }
-.underscores-screencast-input.is-minimal .underscores-screencast-input-current-label { font-size: 11px; }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-current-icon { width: 20px; height: 20px; }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-mouse-glyph { width: 14px; height: 18px; }
+.underscores-screencast-input.is-minimal .underscores-screencast-input-current-label { font-size: 12px; }
 
 .iannix-transport {
   --transport-bg: var(--underscores-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));

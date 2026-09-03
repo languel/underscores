@@ -36,7 +36,11 @@ export const PanelIcon = ({ id }) => {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h5M8 16h7"/><circle cx="18.5" cy="5.5" r="2.5"/></svg>;
   }
   if (id === "documentation") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H12v17H6.5A2.5 2.5 0 0 0 4 22V5.5ZM20 5.5A2.5 2.5 0 0 0 17.5 3H12v17h5.5A2.5 2.5 0 0 1 20 22V5.5Z"/></svg>;
+    return <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3.5 5.25A2.25 2.25 0 0 1 5.75 3H12v17.5a4.5 4.5 0 0 0-3.75-2H5a1.5 1.5 0 0 0-1.5 1.5V5.25Z" />
+      <path d="M20.5 5.25A2.25 2.25 0 0 0 18.25 3H12v17.5a4.5 4.5 0 0 1 3.75-2H19a1.5 1.5 0 0 1 1.5 1.5V5.25Z" />
+      <path d="M12 3v17.5" />
+    </svg>;
   }
   if (id === "properties") {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h8M16 18h4"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="14" cy="18" r="2"/></svg>;
