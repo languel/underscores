@@ -1,5 +1,7 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
+import { buildDefaultExcalidrawLabelMap } from "./elementLabels.js";
+import { isNativeExcalidrawElement } from "./sceneLayers.js";
 import { playlistItemLabel, PLAYLIST_TRIGGER_TYPES } from "./playlist.js";
 import { playlistTriggerPlaceholder } from "./playlistTriggers.js";
 import { getLivecodeKindDefinition, isLivecodeNodeElement, normalizeLivecodeNode } from "./livecodeNode.js";
@@ -43,10 +45,14 @@ const PlaylistPanel = memo(function PlaylistPanel({
   const selectedIds = Object.keys(selectedElementIds || {}).filter(id => selectedElementIds[id]);
   const items = playlist?.items || [];
   const livecodeTargets = elements.filter(element => !element.isDeleted && isLivecodeNodeElement(element));
+  const defaultLabelMap = useMemo(
+    () => buildDefaultExcalidrawLabelMap(elements.filter(isNativeExcalidrawElement)),
+    [elements],
+  );
 
   const itemDisplayLabel = item => {
     const targets = (item?.elementIds || []).map(id => elements.find(element => element.id === id)).filter(Boolean);
-    if (targets.length === 1) return getOutlinerElementLabel(targets[0]) || targets[0].id;
+    if (targets.length === 1) return getOutlinerElementLabel(targets[0], defaultLabelMap) || targets[0].id;
     if (item?.label) return item.label;
     return playlistItemLabel(item, elements);
   };
@@ -60,7 +66,7 @@ const PlaylistPanel = memo(function PlaylistPanel({
     const element = elements.find(candidate => candidate.id === item.elementIds[0]);
     if (!element || item.elementIds.length !== 1) return;
     setEditingItemId(item.id);
-    setEditingValue(getOutlinerElementLabel(element));
+    setEditingValue(getOutlinerElementLabel(element, defaultLabelMap));
   };
 
   const finishRename = (item, commit = true) => {
@@ -129,7 +135,7 @@ const PlaylistPanel = memo(function PlaylistPanel({
               {item.triggerTargetId && !livecodeTargets.some(element => element.id === item.triggerTargetId) && <option value={item.triggerTargetId}>Missing target · {item.triggerTargetId}</option>}
               {livecodeTargets.map(element => {
                 const node = normalizeLivecodeNode(element.customData?.underscoresLivecode);
-                const label = getOutlinerElementLabel(element) || node.name || element.id;
+                const label = getOutlinerElementLabel(element, defaultLabelMap) || node.name || element.id;
                 const kind = getLivecodeKindDefinition(node.kind)?.label || node.kind;
                 return <option key={element.id} value={element.id}>{label} · {kind}</option>;
               })}

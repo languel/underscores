@@ -18,6 +18,8 @@ import { getPhysicsColliderSelectionValue } from "./physicsGeometry.js";
 import { normalizePhysicsConstraint } from "./relationshipGraph.js";
 import { getInspectableCustomData } from "./propertyInspectorModel.js";
 import { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
+import { buildDefaultExcalidrawLabelMap } from "./elementLabels.js";
+import { isNativeExcalidrawElement } from "./sceneLayers.js";
 import NumericInput from "./NumericInput.jsx";
 import { getSpringGeometricLength } from "./physicsConstraintAuthoring.js";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
@@ -41,6 +43,10 @@ const getElementName = element => {
   if (isSvgObjectElement(element)) return normalizeSvgObject(element.customData.underscoresSvg).name;
   return "";
 };
+const getElementDisplayName = (element, defaultLabelMap = null) => (
+  getElementName(element)
+  || (isNativeExcalidrawElement(element) ? getOutlinerElementLabel(element, defaultLabelMap) : "")
+);
 // Frames are semantic Excalidraw containers. Although their element data has a
 // `roundness` slot, Excalidraw's frame renderer uses a fixed rounded outline
 // and does not apply that value. Keep the control to shapes that actually
@@ -909,6 +915,7 @@ const PhysicsConstraintControls = ({
   physicsBodies = [],
   physicsConstraints = [],
   availableElements = [],
+  defaultLabelMap = null,
   collisionLayers = [],
   query,
   onChange,
@@ -935,7 +942,7 @@ const PhysicsConstraintControls = ({
     .map(body => {
       const id = body.objectRef.elementId;
       const element = elementById.get(id);
-      const name = getOutlinerElementLabel(element) || id;
+      const name = getOutlinerElementLabel(element, defaultLabelMap) || id;
       return { key: id, id, kind: "body", label: name };
     });
   const ropeEndpointOptions = physicsConstraints
@@ -950,7 +957,7 @@ const PhysicsConstraintControls = ({
     .map(candidate => {
       const id = candidate.objectRef.elementId;
       const element = elementById.get(id);
-      const name = getOutlinerElementLabel(element) || id;
+      const name = getOutlinerElementLabel(element, defaultLabelMap) || id;
       return { key: `rope:${candidate.id}`, id, kind: "rope", constraintId: candidate.id, label: name };
     });
   const endpointOptions = [...bodyEndpointOptions, ...ropeEndpointOptions];
@@ -1338,6 +1345,10 @@ const PropertiesPanel = memo(function PropertiesPanel({
   const [editingId, setEditingId] = useState(null);
   const [editingValue, setEditingValue] = useState("");
   const editingRef = useRef(null);
+  const defaultLabelMap = useMemo(
+    () => buildDefaultExcalidrawLabelMap((availableElements || []).filter(isNativeExcalidrawElement)),
+    [availableElements],
+  );
   const query = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     if (!needle) return { needle: "", exactOnly: false };
@@ -1406,6 +1417,9 @@ const PropertiesPanel = memo(function PropertiesPanel({
   const beginRename = element => {
     setActiveObjectId(element.id);
     setEditingId(element.id);
+    // Keep the rename field limited to authored text. Generated ordinal labels
+    // are display-only and should not become persisted custom names merely by
+    // opening the editor and accepting it unchanged.
     setEditingValue(getElementName(element));
     requestAnimationFrame(() => editingRef.current?.focus());
   };
@@ -1455,7 +1469,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
             + (svgMatchesQuery(element, query) ? svgFieldCount(element) : 0)
             + mediaPlaybackFieldCount(element, query, mediaSources);
           if (!elementMatchCount) return null;
-          const label = getElementName(element);
+          const label = getElementDisplayName(element, defaultLabelMap);
           return (
             <section className="properties-object" key={element.id} onMouseDown={() => setActiveObjectId(element.id)}>
               <div className="properties-object-heading" onDoubleClick={() => beginRename(element)} title="Double-click or press F2 to rename">
@@ -1548,6 +1562,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 constraint={physicsConstraints.find(candidate => candidate.objectRef?.kind === "element" && candidate.objectRef.elementId === element.id)}
                 physicsBodies={physicsBodies}
                 physicsConstraints={physicsConstraints}
+                defaultLabelMap={defaultLabelMap}
                 availableElements={availableElements}
                 collisionLayers={physicsCollisionLayers}
                 query={query}

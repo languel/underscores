@@ -182,6 +182,17 @@ export const HELP_TOPICS = Object.freeze([
     ],
   },
   {
+    id: "screencast-input",
+    title: "Screencast input",
+    keywords: "screencast input overlay keyboard shortcut click drag mouse gesture tool pointer tutorial presentation recording blender screencast keys",
+    body: "Screencast input is a deliberately small, presentation-friendly view of the latest interactions. It shows shortcut presses, clicks, completed drags, scroll direction, and canvas tool changes without listing every high-frequency mouse sample. Enable it from Settings → Interface, run `/screencast`, or press Command-Option-I on macOS (Ctrl-Alt-I elsewhere). Drag its header to reposition it; the position is remembered per browser. The close button and the same shortcut hide it again. The overlay does not change Excalidraw or livecode pointer ownership: interactive code, model, and media surfaces keep their own controls, while the canvas cursor changes to a pencil, hand, eraser, or shape cursor for the active Excalidraw tool. History still captures full press/move/release gesture samples when Canvas / performance input recording is enabled; during playback, the virtual cursor uses the matching recorded Excalidraw tool symbol and laser color. Screencast input is only the visual cue layer for live work and walkthroughs.",
+    examples: [
+      "/screencast",
+      "Command-Option-I  →  toggle the overlay",
+      "Settings → Interface → Screencast input",
+    ],
+  },
+  {
     id: "media-3d-models",
     title: "3D model inputs",
     keywords: "3d model obj gltf glb usd usdz zip archive mtl textures media input drag drop model viewer animation mixer blendshape morph target preview",
@@ -224,7 +235,7 @@ export const HELP_TOPICS = Object.freeze([
     id: "panel-outliner",
     title: "Outliner",
     keywords: "outliner scene objects labels filter native excalidraw code score physics visibility lock delete selection",
-    body: "Outliner is the compact inventory of the current patch. Search by label or id, switch filters for native, code, Score, and Physics objects, then select, hide, lock, or delete an object without changing its authored data. Unnamed native Excalidraw objects get stable type/id labels such as stroke_ab12; double-click a row label to replace the generated label with an authored name.",
+    body: "Outliner is the compact inventory of the current patch. Search by label or id, switch filters for native, code, Score, and Physics objects, then select, hide, lock, or delete an object without changing its authored data. Unnamed native Excalidraw objects get type-specific, one-based scene-order labels such as stroke_0001; the four-digit suffix counts independently for each native type. Reordering or deleting objects can renumber generated labels, while double-clicking a row label creates an authored name that remains unchanged.",
   },
   {
     id: "panel-playlist",
@@ -314,7 +325,7 @@ export const HELP_TOPICS = Object.freeze([
     id: "panel-history",
     title: "History",
     keywords: "history recording playback session baseline macro walkthrough",
-    body: "History records command and presentation sessions with recoverable baselines. Enable Canvas / performance to retain pointer, mouse, pen, touch, wheel, click, or laser motion on the canvas and interactive performance surfaces. Enable UI events separately when a tutorial should retain panel, menu, editor, and settings interactions; keep it off for a clean rehearsal while you tweak the interface. Adjacent UI events from the same pointer family are grouped into one readable clip until another action or event family appears. Gestures are sampled into bounded input actions and playback shows a glowing virtual cursor arrow, cursor ring, or laser path; the Virtual cursor toggle controls that visual layer. Pause, seek, replay, export, or turn a recording into a draft Walkthrough with the input cues preserved for editing.",
+    body: "History records command and presentation sessions with recoverable baselines. Use the History button or the Session recording shortcut (Command-Option-R on macOS by default; Ctrl-Alt-R elsewhere) to start or stop without recording the toggle itself. Enable Canvas / performance to retain pointer, mouse, pen, touch, wheel, click, or laser motion on the canvas and interactive performance surfaces. Enable UI events separately when a tutorial should retain panel, menu, editor, and settings interactions; keep it off for a clean rehearsal while you tweak the interface. Continuous move samples from the same pointer family are grouped into one readable clip within their scope; clicks and other discrete events stay separate, while a press/move/release drag is captured as one gesture clip. Gestures are sampled into bounded input actions and playback shows a glowing virtual cursor using the matching recorded Excalidraw tool symbol, cursor ring, or laser path; the Virtual cursor toggle controls that visual layer. Pause, seek, replay, export, or turn a recording into a draft Walkthrough with the input cues preserved for editing.",
   },
   {
     id: "panel-walkthrough",

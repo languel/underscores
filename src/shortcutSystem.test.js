@@ -39,6 +39,18 @@ test("context AI command defaults to Option-Shift-minus", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "ai.context.prompt");
 });
 
+test("session recording defaults to Command-Option-R on macOS", () => {
+  assert.equal(DEFAULT_SHORTCUTS["history.record.toggle"], "Mod+Alt+KeyR");
+  const event = { code: "KeyR", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false };
+  assert.equal(shortcutFromEvent(event), "Mod+Alt+KeyR");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "history.record.toggle");
+});
+
+test("migrates the former recording binding to the portable Mod shortcut", () => {
+  const bindings = normalizeShortcutBindings({ "history.record.toggle": "Ctrl+Alt+KeyR" });
+  assert.equal(bindings["history.record.toggle"], "Mod+Alt+KeyR");
+});
+
 test("clear scene uses the explicit Ctrl+Shift+Backspace binding", () => {
   const event = { code: "Backspace", metaKey: false, ctrlKey: true, altKey: false, shiftKey: true };
   assert.equal(shortcutFromEvent(event), "Ctrl+Shift+Backspace");

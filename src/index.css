@@ -568,6 +568,26 @@ body, html {
   cursor: grabbing !important;
 }
 
+/* Keep the drawing cursor legible when an authored tool is active. The
+ * selector is scoped to Excalidraw's canvas so interactive livecode/model
+ * surfaces retain their own pointer and gesture handling. */
+#canvas-container[data-underscores-active-tool="selection"] .excalidraw__canvas.interactive { cursor: default !important; }
+#canvas-container[data-underscores-active-tool="hand"] .excalidraw__canvas.interactive { cursor: grab !important; }
+#canvas-container[data-underscores-active-tool="eraser"] .excalidraw__canvas.interactive { cursor: cell !important; }
+#canvas-container[data-underscores-active-tool="laser"] .excalidraw__canvas.interactive { cursor: crosshair !important; }
+#canvas-container[data-underscores-active-tool="freedraw"] .excalidraw__canvas.interactive {
+  cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='28' viewBox='0 0 28 28'%3E%3Cpath d='M5 22l1.4-5.2L18.6 4.6a2.1 2.1 0 0 1 3 3L9.4 19.8 5 22z' fill='white' stroke='%231b1b1b' stroke-width='1.6' stroke-linejoin='round'/%3E%3Cpath d='M16.8 6.4l4.8 4.8' stroke='%231b1b1b' stroke-width='1.6'/%3E%3C/svg%3E") 3 24, crosshair !important;
+}
+#canvas-container[data-underscores-active-tool="line"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="arrow"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="rectangle"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="ellipse"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="diamond"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="frame"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="embeddable"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="image"] .excalidraw__canvas.interactive,
+#canvas-container[data-underscores-active-tool="text"] .excalidraw__canvas.interactive { cursor: crosshair !important; }
+
 /* --- OVERLAY TOGGLE BUTTONS --- */
 @keyframes slideUp {
   from { transform: translateY(12px); opacity: 0; }
@@ -6647,6 +6667,62 @@ a.iannix-flat-button {
 .performance-reopen.warn strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 75%, #fc7 25%); }
 .performance-reopen.poor strong { color: color-mix(in srgb, var(--underscores-foreground, currentColor) 70%, #f88 30%); }
 .performance-dock:hover, .performance-close:hover, .performance-reopen:hover { opacity: 1; background: var(--underscores-highlight); border-radius: 2px; }
+
+.underscores-screencast-input {
+  position: fixed;
+  z-index: 2500;
+  width: min(260px, calc(100vw - 16px));
+  padding: 0;
+  color: var(--underscores-foreground, var(--color-primary));
+  background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color, #171719)) 86%, transparent);
+  border: 1px solid color-mix(in srgb, var(--underscores-foreground, currentColor) 20%, transparent);
+  border-radius: 4px;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 18%);
+  font: 10px/1.25 var(--underscores-ui-font, system-ui, sans-serif);
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(5px);
+}
+.underscores-screencast-input-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 2px 4px 2px 6px;
+  color: var(--underscores-muted, var(--color-secondary));
+  border-bottom: 1px solid color-mix(in srgb, var(--underscores-foreground, currentColor) 12%, transparent);
+  cursor: grab;
+  pointer-events: auto;
+  touch-action: none;
+}
+.underscores-screencast-input.is-dragging .underscores-screencast-input-header { cursor: grabbing; }
+.underscores-screencast-input-tool {
+  display: grid;
+  width: 15px;
+  height: 15px;
+  place-items: center;
+  color: var(--underscores-accent, var(--color-primary));
+  font-size: 13px;
+}
+.underscores-screencast-input-title { color: var(--underscores-foreground, var(--color-primary)); font-weight: 600; letter-spacing: .02em; }
+.underscores-screencast-input-active-tool { margin-left: auto; color: var(--underscores-muted, var(--color-secondary)); }
+.underscores-screencast-input-header button {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.underscores-screencast-input-header button:hover { color: var(--underscores-foreground, var(--color-primary)); background: var(--underscores-highlight, transparent); }
+.underscores-screencast-input-events { display: grid; gap: 1px; padding: 3px 5px 4px; }
+.underscores-screencast-input-event { display: flex; align-items: baseline; gap: 5px; min-width: 0; min-height: 15px; color: var(--underscores-muted, var(--color-secondary)); }
+.underscores-screencast-input-event-icon { width: 13px; color: var(--underscores-accent, var(--color-primary)); text-align: center; }
+.underscores-screencast-input-event-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-event code { margin-left: auto; overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
+.underscores-screencast-input-empty { padding: 2px 0; color: var(--underscores-muted, var(--color-secondary)); opacity: .75; }
 
 .iannix-transport {
   --transport-bg: var(--underscores-panel-bg, var(--island-bg-color, var(--bg-sidebar, #fff)));

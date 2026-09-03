@@ -93,7 +93,7 @@ test("input capture scopes migrate the legacy aggregate switch", () => {
   assert.notEqual(controller.record({ kind: "input", args: { scope: "canvas", samples: [] } }), null);
 });
 
-test("adjacent UI input samples share one clip until another action intervenes", () => {
+test("continuous UI moves share one clip while clicks remain separate clips", () => {
   const controller = new UnderscoresSessionController({ now: () => 0 });
   controller.start({ includeUiInput: true, includeCanvasInput: false });
   controller.record({
@@ -103,15 +103,28 @@ test("adjacent UI input samples share one clip until another action intervenes",
   });
   controller.record({
     kind: "input",
+    at: 0.15,
+    args: { scope: "ui", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 15, y: 15 } }] },
+  });
+  controller.record({
+    kind: "input",
+    at: 0.18,
+    args: { scope: "ui", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 18, y: 18 } }] },
+  });
+  controller.record({
+    kind: "input",
     at: 0.2,
     duration: 0.02,
     args: { scope: "ui", eventType: "mouse", pointerType: "mouse", phase: "click", samples: [{ time: 0, viewport: { x: 20, y: 20 } }] },
   });
   let session = controller.get();
-  assert.equal(session.actions.length, 1);
-  assert.equal(session.actions[0].duration, 0.12);
-  assert.equal(session.actions[0].args.samples.length, 2);
-  assert.equal(session.actions[0].args.samples[1].time, 100);
+  assert.equal(session.actions.length, 2);
+  assert.ok(Math.abs(session.actions[0].duration - 0.08) < 1e-9);
+  assert.equal(session.actions[0].args.samples.length, 3);
+  assert.ok(Math.abs(session.actions[0].args.samples[1].time - 50) < 1e-9);
+  assert.ok(Math.abs(session.actions[0].args.samples[2].time - 80) < 1e-9);
+  assert.equal(session.actions[1].args.phase, "click");
+  assert.equal(session.actions[1].args.samples.length, 1);
 
   controller.record({ kind: "command", at: 0.4, commandId: "panel.open", args: {} });
   controller.record({
@@ -125,9 +138,96 @@ test("adjacent UI input samples share one clip until another action intervenes",
     args: { scope: "ui", eventType: "pointer", pointerType: "touch", phase: "move", samples: [{ time: 0, viewport: { x: 40, y: 40 } }] },
   });
   session = controller.get();
-  assert.equal(session.actions.length, 4);
-  assert.equal(session.actions[2].args.samples.length, 1);
-  assert.equal(session.actions[3].args.pointerType, "touch");
+  assert.equal(session.actions.length, 5);
+  assert.equal(session.actions[3].args.samples.length, 1);
+  assert.equal(session.actions[4].args.pointerType, "touch");
+});
+
+test("adjacent canvas hover samples share one clip without crossing the UI boundary", () => {
+  const controller = new UnderscoresSessionController({ now: () => 0 });
+  controller.start({ includeCanvasInput: true, includeUiInput: true });
+  controller.record({
+    kind: "input",
+    at: 0.1,
+    args: { scope: "canvas", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 10, y: 10 } }] },
+  });
+  controller.record({
+    kind: "input",
+    at: 0.2,
+    args: { scope: "canvas", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 20, y: 20 } }] },
+  });
+  controller.record({
+    kind: "input",
+    at: 0.3,
+    args: { scope: "canvas", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 30, y: 30 } }] },
+  });
+  controller.record({
+    kind: "input",
+    at: 0.4,
+    args: { scope: "ui", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 40, y: 40 } }] },
+  });
+  const session = controller.get();
+  assert.equal(session.actions.length, 2);
+  assert.equal(session.actions[0].args.scope, "canvas");
+  assert.equal(session.actions[0].args.samples.length, 3);
+  assert.ok(Math.abs(session.actions[0].duration - 0.2) < 1e-9);
+  assert.ok(Math.abs(session.actions[0].args.samples[1].time - 100) < 1e-9);
+  assert.ok(Math.abs(session.actions[0].args.samples[2].time - 200) < 1e-9);
+  assert.equal(session.actions[1].args.scope, "ui");
+});
+
+test("laser move samples share one canvas clip while a click stays separate", () => {
+  const controller = new UnderscoresSessionController({ now: () => 0 });
+  controller.start({ includeCanvasInput: true, includeUiInput: false });
+  for (const [at, x, y] of [[0.1, 10, 12], [0.16, 16, 18], [0.24, 24, 26]]) {
+    controller.record({
+      kind: "input",
+      at,
+      args: {
+        scope: "canvas",
+        eventType: "laser",
+        pointerType: "mouse",
+        pointerId: 1,
+        phase: "move",
+        tool: "laser",
+        samples: [{ time: 0, viewport: { x, y }, tool: "laser" }],
+      },
+    });
+  }
+  controller.record({
+    kind: "input",
+    at: 0.3,
+    duration: 0.01,
+    args: {
+      scope: "canvas",
+      eventType: "laser",
+      pointerType: "mouse",
+      pointerId: 1,
+      phase: "click",
+      tool: "laser",
+      samples: [{ time: 0, viewport: { x: 30, y: 32 }, tool: "laser" }],
+    },
+  });
+  const session = controller.get();
+  assert.equal(session.actions.length, 2);
+  assert.equal(session.actions[0].args.eventType, "laser");
+  assert.equal(session.actions[0].args.samples.length, 3);
+  assert.equal(session.actions[0].args.tool, "laser");
+  assert.ok(Math.abs(session.actions[0].duration - 0.14) < 1e-9);
+  assert.equal(session.actions[1].args.phase, "click");
+});
+
+test("starting a fresh take does not restore the previous action list", () => {
+  const controller = new UnderscoresSessionController({ now: () => 0 });
+  controller.start({ baseline: { marker: "old" }, includeInput: true });
+  controller.record({ kind: "command", at: 0.25, commandId: "old.action", args: {} });
+  controller.stop();
+
+  controller.start({ append: false, baseline: { marker: "new" }, includeInput: true });
+  const session = controller.get();
+  assert.deepEqual(session.baseline, { marker: "new" });
+  assert.equal(session.actions.length, 0);
+  assert.equal(controller.playhead, 0);
 });
 
 test("clearing a session stops an active playback transport", async () => {

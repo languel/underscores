@@ -123,14 +123,20 @@ const getSessionDuration = session => (session?.actions || []).reduce(
   0,
 );
 
-// UI input is sampled at the browser event rate. Keeping every click, hover,
-// and compatibility mouse event as its own History row makes tutorial takes
-// noisy without adding replay fidelity. Adjacent events from the same UI
-// pointer stream are therefore folded into one action; any command, scene,
-// canvas-input, or changed pointer family naturally starts a new clip.
-const canMergeUiInput = (previous, next) => {
-  if (!previous || previous.kind !== "input" || previous.args?.scope !== "ui") return false;
-  if (next.kind !== "input" || next.args?.scope !== "ui") return false;
+// Input is sampled at the browser event rate. Keeping every continuous hover
+// move as its own History row makes takes noisy without adding replay fidelity.
+// Adjacent move samples from the same pointer stream are therefore folded into
+// one action within their scope. Discrete events (clicks, wheel, enter/leave)
+// and UI/canvas scope changes always start a new clip. Pressed gestures are
+// already recorded as one sampled action from down through up.
+const canMergeInput = (previous, next) => {
+  if (!previous || previous.kind !== "input") return false;
+  if (next.kind !== "input") return false;
+  const previousScope = previous.args?.scope;
+  const nextScope = next.args?.scope;
+  if (!["ui", "canvas"].includes(previousScope) || previousScope !== nextScope) return false;
+  if (previous.args?.phase !== "move" || next.args?.phase !== "move") return false;
+  if (next.duration > 0) return false;
   const previousEventType = previous.args?.eventType || "pointer";
   const nextEventType = next.args?.eventType || "pointer";
   if (previousEventType !== nextEventType) return false;
@@ -145,7 +151,7 @@ const canMergeUiInput = (previous, next) => {
   return samePointer && next.at >= previous.at + previous.duration;
 };
 
-const mergeUiInputActions = (previous, next) => {
+const mergeInputActions = (previous, next) => {
   const merged = cloneValue(previous);
   const previousSamples = Array.isArray(previous.args?.samples) ? previous.args.samples : [];
   const nextSamples = Array.isArray(next.args?.samples) ? next.args.samples : [];
@@ -339,8 +345,8 @@ export class UnderscoresSessionController {
       if (scope === "canvas" && !this.session.includeCanvasInput) return null;
     }
     const previous = this.session.actions[this.session.actions.length - 1];
-    if (canMergeUiInput(previous, normalized)) {
-      const merged = mergeUiInputActions(previous, normalized);
+    if (canMergeInput(previous, normalized)) {
+      const merged = mergeInputActions(previous, normalized);
       this.session.actions[this.session.actions.length - 1] = merged;
       if (this.recordClockMode === "active") {
         this.recordCursor = merged.at + merged.duration;

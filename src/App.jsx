@@ -44,12 +44,13 @@ import NumericInput from "./NumericInput.jsx";
 import GeometryResetIcon from "./GeometryResetIcon.jsx";
 import { embedPolicyForElement, extractDroppedEmbedURL, isAllowedEmbedURL, sanitizeEmbedURL, shouldRenderEmbed } from "./embedPolicy.js";
 import OutlinerPanel, { getOutlinerElementLabel } from "./OutlinerPanel.jsx";
+import { buildDefaultExcalidrawLabelMap } from "./elementLabels.js";
 import PlaylistPanel from "./PlaylistPanel.jsx";
 import { applyPlaylistTargetArgs, executePlaylistJavaScript, parsePlaylistCommand } from "./playlistTriggers.js";
 import { createPlaylistItem, createPlaylistState, getPlaylistItemElements, movePlaylistItem } from "./playlist.js";
 import { findPendingManimCue } from "./manimRuntimeRegistry.js";
 import { applyPresentationVisibility, canFitPresentationBounds, isElementVisibleInPresentation } from "./presentationVisibility.js";
-import { groupSceneElements, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, reorderSelectedSceneElements, ungroupSceneElements } from "./sceneLayers.js";
+import { groupSceneElements, isNativeExcalidrawElement, moveSceneElementsToGroup, moveSceneElementsToGroupParent, moveSceneGroupToParent, renameSceneGroup, reorderSceneElements, reorderSelectedSceneElements, ungroupSceneElements } from "./sceneLayers.js";
 import IannixDataPanel from "./IannixDataPanel.jsx";
 import { UnderscoresCommandRegistry, UnderscoresEventBus, UnderscoresInputBus, findExactCommand, parseGenericCommandSlash } from "./commandSystem.js";
 import { buildAIAutomationGuide, isAICommandAllowed, parseUnderscoresCommandTags } from "./aiTooling.js";
@@ -212,6 +213,9 @@ import { getSvgNodeTransform, invertSvgTransform } from "./svgTransform.js";
 import { createModifierTrackExportElements, downloadCanvasAsPng, exportUnderscoresPng, findMediaStreamCanvasForElement, getElementExportBounds, getElementsExportBounds } from "./p5Export.js";
 import { captureLivecodeFrameSnapshot, clearLivecodeFrameSnapshot, getLivecodeFrameSnapshot } from "./livecodeFrameSnapshot.js";
 import PerformanceOverlay from "./PerformanceOverlay.jsx";
+import ScreencastInputOverlay from "./ScreencastInputOverlay.jsx";
+import SessionVirtualCursorIcon from "./SessionVirtualCursorIcon.jsx";
+import { formatScreencastKey, SCREENCAST_INPUT_STORAGE_KEY, screencastToolLabel } from "./screencastInput.js";
 import { underscoresPerformanceMonitor } from "./performanceMonitor.js";
 import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImageElement, replaceSceneElementsWithBake } from "./sceneBake.js";
 import { quantizeGridElement, quantizeGridElementBounds, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
@@ -3196,6 +3200,11 @@ const repairLegacyAxleEndpointsForScene = (graphValue, elements = []) => {
 function App() {
   // App States
   const [excalidrawAPI, setExcalidrawAPI] = useState(null);
+  const [screencastInputVisible, setScreencastInputVisible] = useState(() => localStorage.getItem(SCREENCAST_INPUT_STORAGE_KEY) === "true");
+  const [screencastInputEvents, setScreencastInputEvents] = useState([]);
+  const [activeCanvasToolType, setActiveCanvasToolType] = useState("freedraw");
+  const screencastInputVisibleRef = useRef(screencastInputVisible);
+  const activeCanvasToolTypeRef = useRef("freedraw");
   const runtimeCallbacksRef = useRef({
     restoreBaseline: async () => {},
     applyAction: async () => {},
@@ -3565,6 +3574,20 @@ function App() {
     localStorage.setItem("underscores_performance_overlay", String(showPerformanceOverlay));
     localStorage.setItem("underscores_performance_overlay_placement", performanceOverlayPlacement);
   }, [performanceOverlayPlacement, showPerformanceOverlay]);
+  const emitScreencastInputEvent = useCallback(event => {
+    if (!event || typeof event !== "object") return;
+    setScreencastInputEvents(previous => [
+      ...previous.slice(-11),
+      {
+        ...event,
+        id: event.id || `screencast-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      },
+    ]);
+  }, []);
+  useEffect(() => {
+    screencastInputVisibleRef.current = screencastInputVisible;
+    localStorage.setItem(SCREENCAST_INPUT_STORAGE_KEY, String(screencastInputVisible));
+  }, [screencastInputVisible]);
   useEffect(() => {
     localStorage.setItem(PHYSICS_DEBUG_STORAGE_KEY, JSON.stringify(physicsDebug));
   }, [physicsDebug]);
@@ -4626,6 +4649,10 @@ function App() {
   // Bring forward. Keep a compact immutable snapshot for the Outliner so it
   // observes the canonical stack even when object fields are unchanged.
   const [outlinerSceneElements, setOutlinerSceneElements] = useState([]);
+  const defaultExcalidrawLabelMap = useMemo(
+    () => buildDefaultExcalidrawLabelMap(outlinerSceneElements.filter(element => isNativeExcalidrawElement(element))),
+    [outlinerSceneElements],
+  );
   const outlinerSceneSignatureRef = useRef("");
   const livecodeUnderlayActive = useMemo(() => livecodeOverlayScene.elements.some(element => (
     isLivecodeUnderlayVisible(element, {
@@ -6095,6 +6122,7 @@ function App() {
           id: action.id,
           samples: visibleSamples,
           pointer: samples[Math.max(0, count - 1)] || null,
+          tool: action.args?.brush?.tool || action.args?.tool || samples[Math.max(0, count - 1)]?.tool || samples[0]?.tool || "freedraw",
           strokeColor: sourceElement?.strokeColor || "#e9ecef",
           strokeWidth: sourceElement?.strokeWidth || 2,
           paths,
@@ -6125,6 +6153,7 @@ function App() {
             id: action.id,
             eventType: action.args?.eventType || "pointer",
             scope: action.args?.scope === "ui" ? "ui" : "canvas",
+            tool: action.args?.tool || visibleSamples.at(-1)?.tool || samples.at(-1)?.tool || samples[0]?.tool || "selection",
             samples: visibleSamples,
             pointer: visibleSamples.at(-1) || samples.at(-1) || null,
             color: action.args?.color || null,
@@ -7492,12 +7521,12 @@ function App() {
     }
     try {
       await navigator.clipboard.writeText(path);
-      const label = getOutlinerElementLabel(element);
+      const label = getOutlinerElementLabel(element, defaultExcalidrawLabelMap);
       setSceneExchangeStatus(`Copied ${label && label !== element.id ? `${label} · ` : ""}${path}.`);
     } catch {
       setSceneExchangeStatus("Could not copy the selected object path.");
     }
-  }, [getSelectedObjectForPath]);
+  }, [defaultExcalidrawLabelMap, getSelectedObjectForPath]);
 
   useLayoutEffect(() => {
     const menu = customContextMenuRef.current;
@@ -7727,7 +7756,7 @@ function App() {
         return;
       }
       const { candidate } = hit;
-      const label = getOutlinerElementLabel(candidate);
+      const label = getOutlinerElementLabel(candidate, defaultExcalidrawLabelMap);
       const preview = {
         x: Math.min(event.clientX + 18, Math.max(8, window.innerWidth - 330)),
         y: Math.min(event.clientY + 18, Math.max(8, window.innerHeight - 72)),
@@ -7748,7 +7777,7 @@ function App() {
       document.removeEventListener("pointermove", updatePreview, true);
       document.removeEventListener("pointerleave", clearPreview, true);
     };
-  }, [excalidrawAPI, findObjectEyedropperCandidate, objectEyedropper]);
+  }, [defaultExcalidrawLabelMap, excalidrawAPI, findObjectEyedropperCandidate, objectEyedropper]);
 
   const handleObjectEyedropperPointerDown = event => {
     const request = objectEyedropperRef.current;
@@ -12796,6 +12825,12 @@ function App() {
     }
   };
 
+  const updateScreencastInputVisibility = visible => {
+    const nextVisible = Boolean(visible);
+    screencastInputVisibleRef.current = nextVisible;
+    setScreencastInputVisible(nextVisible);
+  };
+
   const updatePerformancePlacement = placement => {
     const nextPlacement = placement === "floating" ? "floating" : "console";
     setPerformanceOverlayPlacement(nextPlacement);
@@ -15059,6 +15094,7 @@ function App() {
     { id: "dock.right.toggle", name: "Toggle Right Sidebar /right sidebar", aliases: ["/right sidebar", "/sidebar right", "/right dock", "right sidebar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the right sidebar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, right: !previous.right })) },
     { id: "dock.bottom.toggle", name: "Toggle Bottom Bar /bottom bar", aliases: ["/bottom", "/bottom bar", "/bottom dock", "bottom bar"], category: "Panels", record: "presentation", ai: { expose: true, description: "Collapse or reveal the bottom bar dock." }, action: () => setCollapsedDocks(previous => ({ ...previous, bottom: !previous.bottom })) },
     { id: "performance.toggle", version: 2, name: "Toggle Performance Monitor /performance", aliases: ["/performance", "/perf", "FPS monitor"], category: "View", action: () => updatePerformanceVisibility(!showPerformanceOverlayRef.current) },
+    { id: "screencast.input.toggle", name: "Toggle Screencast Input /screencast", aliases: ["/screencast", "/screencast input", "screencast input"], category: "View", record: "presentation", ai: { expose: true, description: "Toggle the subtle draggable Screencast Input overlay showing recent shortcuts, clicks, gestures, and active canvas tools." }, action: () => updateScreencastInputVisibility(!screencastInputVisibleRef.current) },
     { id: "code.documentation.toggle", name: "Toggle Code Documentation Overlay /docs overlay", aliases: ["/docs overlay", "/documentation overlay", "/lsp overlay", "docs overlay", "lsp overlay", "toggle documentation overlay"], category: "View", action: () => setShowDocumentationOverlay(previous => !previous) },
     { id: "physics.toolbar.toggle", name: "Toggle Physics Toolbar /physicstoolbar", aliases: ["/physicstoolbar", "/physics toolbar", "physics toolbar"], category: "Physics", ai: { expose: true, description: "Toggle the floating or docked physics authoring toolbar." }, action: () => physicsToolbarOpen ? closePhysicsToolbar() : setPhysicsToolbarOpen(true) },
     { id: "physics.system.create", name: "Physics: Create System", aliases: ["/physics new"], category: "Physics", args: { name: "string?", gravity: "{x,y}?", clock: "realtime|transport?" }, ai: { expose: true, description: "Create an independent canvas physics system." }, action: (_api, args = {}) => {
@@ -15496,7 +15532,7 @@ function App() {
     { id: "score.grid.quantization", name: "Set Score Quantization /score quantize", aliases: ["/score quantize"], category: "Grid", args: { elementIds: "string[]?", quantize: "object" }, action: (_api, args) => updateScoreGridBinding(args) },
     { id: "history.record.start", name: "Start Session Recording /record start", aliases: ["/record start"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: false }) },
     { id: "history.record.play", name: "Record and Play /record play", aliases: ["/record play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true }) },
-    { id: "history.record.loop", name: "Loop Overdub Recording /record loop", aliases: ["/record loop"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true, loopOverdub: true }) },
+    { id: "history.record.loop", name: "Loop Overdub Recording /record loop", aliases: ["/record loop"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStart({ play: true, loopOverdub: true, append: true }) },
     { id: "history.record.pause", name: "Pause or Resume Recording /record pause", aliases: ["/record pause"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPause() },
     { id: "history.record.stop", name: "Stop Session Recording /record stop", aliases: ["/record stop"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyStop() },
     { id: "history.play", name: "Play Session /history play", aliases: ["/history play"], category: "History", record: "never", action: () => runtimeCallbacksRef.current.historyPlay() },
@@ -15582,6 +15618,99 @@ function App() {
     return () => window.removeEventListener("pointermove", rememberPointer);
   }, []);
 
+  // Screencast input is intentionally a low-frequency view of interaction:
+  // clicks, completed drags, scroll gestures, shortcut presses, and tool
+  // changes are useful teaching signals while continuous pointer moves stay
+  // in the History gesture clip instead of causing overlay renders.
+  useEffect(() => {
+    const pointers = new Map();
+    let lastWheelAt = 0;
+    const isOverlayTarget = target => target?.closest?.("[data-screencast-input]");
+    const scopeForTarget = target => target?.closest?.(
+      ".underscores-panel-shell, #command-palette-overlay, .custom-floating-context-menu, .context-menu, .dropdown-menu, .popover, input, textarea, select, button, [contenteditable='true'], [role='button'], [role='menuitem'], [role='tab'], [role='textbox']"
+    ) ? "UI" : "Canvas";
+    const targetLabel = target => {
+      if (!target || target.nodeType !== 1) return "";
+      const label = target.getAttribute?.("aria-label") || target.getAttribute?.("title");
+      return label ? String(label).slice(0, 48) : "";
+    };
+    const buttonLabel = event => {
+      if (event.pointerType && event.pointerType !== "mouse") return event.pointerType;
+      return event.button === 1 ? "middle" : event.button === 2 ? "right" : "left";
+    };
+    const handleKeyDown = event => {
+      if (event.repeat || isOverlayTarget(event.target)) return;
+      const shortcut = findShortcutAction(shortcutBindings, event);
+      emitScreencastInputEvent({
+        kind: "key",
+        icon: "⌨",
+        label: shortcut?.label || "Key press",
+        detail: shortcut ? `${formatScreencastKey(event)} · ${shortcut.label}` : formatScreencastKey(event),
+      });
+    };
+    const handlePointerDown = event => {
+      if (isOverlayTarget(event.target)) return;
+      const pointerId = Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : 0;
+      pointers.set(pointerId, {
+        x: Number(event.clientX) || 0,
+        y: Number(event.clientY) || 0,
+        button: buttonLabel(event),
+        pointerType: event.pointerType || "mouse",
+        scope: scopeForTarget(event.target),
+        target: targetLabel(event.target),
+      });
+    };
+    const handlePointerUp = event => {
+      if (isOverlayTarget(event.target)) return;
+      const pointerId = Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : 0;
+      const start = pointers.get(pointerId);
+      pointers.delete(pointerId);
+      if (!start) return;
+      const x = Number(event.clientX) || 0;
+      const y = Number(event.clientY) || 0;
+      const distance = Math.hypot(x - start.x, y - start.y);
+      const gesture = distance > 4 ? `${start.button} drag` : `${start.button} click`;
+      emitScreencastInputEvent({
+        kind: "pointer",
+        icon: distance > 4 ? "↗" : "•",
+        label: `${start.scope} · ${gesture}`,
+        detail: start.target || start.pointerType,
+      });
+    };
+    const handlePointerCancel = event => {
+      const pointerId = Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : 0;
+      pointers.delete(pointerId);
+    };
+    const handleWheel = event => {
+      if (isOverlayTarget(event.target)) return;
+      const now = performance.now();
+      if (now - lastWheelAt < 120) return;
+      lastWheelAt = now;
+      const direction = Math.abs(Number(event.deltaY) || 0) >= Math.abs(Number(event.deltaX) || 0)
+        ? ((Number(event.deltaY) || 0) > 0 ? "down" : "up")
+        : ((Number(event.deltaX) || 0) > 0 ? "right" : "left");
+      emitScreencastInputEvent({
+        kind: "pointer",
+        icon: "↕",
+        label: `${scopeForTarget(event.target)} · scroll`,
+        detail: direction,
+      });
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("pointerup", handlePointerUp, true);
+    window.addEventListener("pointercancel", handlePointerCancel, true);
+    window.addEventListener("wheel", handleWheel, { capture: true, passive: true });
+    return () => {
+      pointers.clear();
+      window.removeEventListener("keydown", handleKeyDown, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("pointerup", handlePointerUp, true);
+      window.removeEventListener("pointercancel", handlePointerCancel, true);
+      window.removeEventListener("wheel", handleWheel, true);
+    };
+  }, [emitScreencastInputEvent, shortcutBindings]);
+
   // Input capture is deliberately opt-in and split into canvas/performance and
   // UI scopes. Pointer events cover mouse, pen, and touch in modern browsers,
   // so a single listener gives History a faithful stream without
@@ -15625,9 +15754,13 @@ function App() {
       const scenePoint = appState && Number.isFinite(clientX) && Number.isFinite(clientY)
         ? viewportCoordsToSceneCoords({ clientX, clientY }, appState)
         : { x: clientX, y: clientY };
-      const activeTool = appState?.activeTool?.type || null;
+      // Read the latest tool from the stable ref maintained by Excalidraw's
+      // onChange callback. The capture effect must not restart when the laser
+      // React state flips, otherwise an in-progress laser gesture loses its
+      // pointer id and every following sample is recorded as a new hover clip.
+      const activeTool = activeCanvasToolTypeRef.current || appState?.activeTool?.type || null;
       const pointerType = event.pointerType || "mouse";
-      const eventType = activeTool === "laser" || laserToolActive
+      const eventType = activeTool === "laser"
         ? "laser"
         : pointerType === "mouse" ? "mouse" : "pointer";
       return {
@@ -15662,6 +15795,7 @@ function App() {
       }
       gesture.samples.push(sample);
     };
+    const boundaryEventTypes = new Set(["pointerover", "pointerout", "pointerenter", "pointerleave", "mouseover", "mouseout"]);
     const actionAt = startedAt => {
       if (historyClockMode !== "realtime" || !Number.isFinite(historyController.recordStartedAt)) return undefined;
       return Math.max(0, (startedAt - historyController.recordStartedAt - historyController.recordPausedDuration) / 1000);
@@ -15696,6 +15830,17 @@ function App() {
     };
     const handlePointer = event => {
       if (historyController.status !== "recording" || (historyController.recordFilter !== "all" && historyController.recordFilter !== "input")) return;
+      const pointerId = Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : 0;
+      const boundaryEvent = boundaryEventTypes.has(event.type);
+      const gesture = capture.gestures.get(pointerId);
+      if (boundaryEvent && gesture) {
+        // Nested canvas/SVG targets can emit boundary events while a pointer
+        // is drawing. Keep those samples inside the active drag (especially
+        // for laser paths) instead of turning each target transition into a
+        // separate History clip.
+        append(gesture, sampleFor(event, gesture.startedAt));
+        return;
+      }
       if (["click", "dblclick", "contextmenu", "wheel", "pointerover", "pointerout", "pointerenter", "pointerleave", "mouseover", "mouseout"].includes(event.type)) {
         const now = performance.now();
         if (event.type === "wheel" && now - capture.lastWheelAt < 33) return;
@@ -15729,7 +15874,6 @@ function App() {
         });
         return;
       }
-      const pointerId = Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : 0;
       const isDown = event.type === "pointerdown" || event.type === "mousedown";
       const isMove = event.type === "pointermove" || event.type === "mousemove";
       const isUp = event.type === "pointerup" || event.type === "mouseup" || event.type === "pointercancel";
@@ -15748,7 +15892,6 @@ function App() {
         });
         return;
       }
-      const gesture = capture.gestures.get(pointerId);
       if (isMove) {
         if (gesture) {
           append(gesture, sampleFor(event, gesture.startedAt));
@@ -15857,7 +16000,7 @@ function App() {
       window.removeEventListener("contextmenu", handlePointer, true);
       window.removeEventListener("wheel", handlePointer, true);
     };
-  }, [eventBus, excalidrawAPI, historyClockMode, historyController, historyIncludeCanvasInput, historyIncludeUiInput, laserColor, laserOpacity, laserToolActive]);
+  }, [eventBus, excalidrawAPI, historyClockMode, historyController, historyIncludeCanvasInput, historyIncludeUiInput, laserColor, laserOpacity]);
 
   // Toggle the command palette on Cmd + / and the context command field on
   // Option + Shift + Minus. Keep these presentation shortcuts global.
@@ -15934,6 +16077,7 @@ function App() {
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
         && shortcutActionForEvent?.id !== "ai.context.prompt"
         && shortcutActionForEvent?.id !== "livecode.manim.cue.next"
+        && shortcutActionForEvent?.id !== "screencast.input.toggle"
         && !isSceneLayerShortcut
         && !objectPickerEscape) return;
 
@@ -16014,7 +16158,8 @@ function App() {
         && !canvasMediaShortcutCandidate
         && shortcutActionForEvent?.id !== "object.pick.fromCanvas"
         && shortcutActionForEvent?.id !== "ai.context.prompt"
-        && shortcutActionForEvent?.id !== "code.documentation.toggle") return;
+        && shortcutActionForEvent?.id !== "code.documentation.toggle"
+        && shortcutActionForEvent?.id !== "screencast.input.toggle") return;
 
       // Space controls score transport from the canvas/UI. Text controls keep
       // their native spacebar behavior so users can still type normally.
@@ -16089,6 +16234,7 @@ function App() {
         || shortcutActionForEvent?.id === "object.pick.fromCanvas"
         || shortcutActionForEvent?.id === "ai.context.prompt"
         || shortcutActionForEvent?.id === "code.documentation.toggle"
+        || shortcutActionForEvent?.id === "screencast.input.toggle"
         || isSceneLayerShortcut
         ? shortcutActionForEvent
         : null;
@@ -16143,6 +16289,10 @@ function App() {
         if (shortcutAction.id === "history.record.toggle") {
           const commandId = historyController.status.startsWith("recording") ? "history.record.stop" : "history.record.start";
           commandRegistry.execute(commandId, {}, { source: "shortcut", record: false, transportTime: scoreTimeRef.current });
+          return;
+        }
+        if (shortcutAction.id === "screencast.input.toggle") {
+          updateScreencastInputVisibility(!screencastInputVisibleRef.current);
           return;
         }
         if (shortcutAction.id === "arrangement.record.toggle") {
@@ -16551,7 +16701,7 @@ function App() {
         type: element.type,
         kind: node.kind,
         name: node.name,
-        label: getOutlinerElementLabel(element) || node.name || element.id,
+        label: getOutlinerElementLabel(element, defaultExcalidrawLabelMap) || node.name || element.id,
         x: Number(element.x) || 0,
         y: Number(element.y) || 0,
         width: Number(element.width) || 0,
@@ -18938,7 +19088,7 @@ function App() {
       accept: element => Boolean(element && !element.isDeleted && isLivecodeNodeElement(element)),
       onPick: element => {
         patchPlaylistItem(itemId, { triggerTargetId: element.id });
-        return `Playlist target set to ${getOutlinerElementLabel(element) || element.id}.`;
+        return `Playlist target set to ${getOutlinerElementLabel(element, defaultExcalidrawLabelMap) || element.id}.`;
       },
     });
   };
@@ -18954,11 +19104,11 @@ function App() {
       ),
       onPick: element => {
         const path = objectPathForElement(element);
-        const label = getOutlinerElementLabel(element);
+        const label = getOutlinerElementLabel(element, defaultExcalidrawLabelMap);
         return `Selected ${label && label !== element.id ? `${label} · ` : ""}${path}.`;
       },
     });
-  }, [beginObjectEyedropper]);
+  }, [beginObjectEyedropper, defaultExcalidrawLabelMap]);
   beginGlobalObjectEyedropperRef.current = beginGlobalObjectEyedropper;
 
   const beginScriptObjectParameterEyedropper = (parameter, assign) => {
@@ -21764,6 +21914,7 @@ function App() {
       id: cue.id || `walkthrough-input-${Date.now()}`,
       eventType: cue.eventType || args.eventType || "pointer",
       scope: cue.scope || args.scope || "canvas",
+      tool: cue.tool || args.tool || samples.at(-1)?.tool || samples[0]?.tool || "selection",
       samples,
       pointer: samples.at(-1),
       color: cue.color || args.color || null,
@@ -21891,7 +22042,11 @@ function App() {
       : { elements: args.elements || [] },
   });
 
-  const startHistoryRecording = ({ play = false, loopOverdub = false } = {}) => {
+  // A record button press starts a fresh take. Callers that intentionally want
+  // to overdub can opt into append explicitly (the loop-overdub command does
+  // this), while ordinary recording no longer reuses the previous session's
+  // action list or playhead.
+  const startHistoryRecording = ({ play = false, loopOverdub = false, append = false } = {}) => {
     const baseline = captureSessionBaseline();
     lastSceneElementsRef.current = new Map(
       (excalidrawAPI?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element])
@@ -21905,6 +22060,7 @@ function App() {
       includeUiInput: historyIncludeUiInput,
       clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, sampleRate: scoreSampleRate, historyMode: historyClockMode },
       name: `Session ${new Date().toLocaleString()}`,
+      append,
     });
     gestureLoopRecordingRef.current = Boolean(loopOverdub);
     if (loopOverdub) {
@@ -22218,6 +22374,7 @@ function App() {
     if (typeof state.satoriMode === "boolean") setSatoriMode(state.satoriMode);
     if (typeof state.showToolbarHints === "boolean") setShowToolbarHints(state.showToolbarHints);
     if (typeof state.showCanvasHoverTips === "boolean") setShowCanvasHoverTips(state.showCanvasHoverTips);
+    if (typeof state.screencastInputVisible === "boolean") updateScreencastInputVisibility(state.screencastInputVisible);
     if (typeof state.showBottomNotifications === "boolean") setShowBottomNotifications(state.showBottomNotifications);
     if (typeof state.forceDesktopLayout === "boolean") setForceDesktopLayout(state.forceDesktopLayout);
     if (typeof state.forceUnderscoresUiTheme === "boolean") setForceUnderscoresUiTheme(state.forceUnderscoresUiTheme);
@@ -22479,6 +22636,7 @@ function App() {
       satoriMode,
       showToolbarHints,
       showCanvasHoverTips,
+      screencastInputVisible,
       showBottomNotifications,
       forceDesktopLayout,
       forceUnderscoresUiTheme,
@@ -22506,7 +22664,7 @@ function App() {
         transportTime: scoreTimeRef.current,
       }).catch(error => console.error("Could not record board settings", error));
     }, 180);
-  }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, showBottomNotifications, showCanvasHoverTips, showDebugLayer, showToolbarHints, theme]);
+  }, [accentColor, accentOpacity, autocompleteEnabled, commandRegistry, defaultStabilizerDamping, documentationTipMode, forceDesktopLayout, forceUnderscoresUiTheme, foregroundColor, foregroundOpacity, highlightColor, highlightOpacity, historyController, historyIncludePresentation, interfaceFont, interfaceFontSize, interfaceTheme, interfaceThemePreset, mutedColor, mutedOpacity, physicsToolbarDockedTop, physicsToolbarOpen, roleTheme, satoriMode, screencastInputVisible, showBottomNotifications, showCanvasHoverTips, showDebugLayer, showToolbarHints, theme]);
 
   webMCPContextRef.current = {
     transport: {
@@ -23901,12 +24059,12 @@ function App() {
     const bodyConnectionOptions = connectionBodies.map(candidate => {
       const elementId = candidate.objectRef.elementId;
       const element = connectionElementById.get(elementId);
-      return { key: elementId, kind: "body", elementId, label: getOutlinerElementLabel(element) || elementId };
+      return { key: elementId, kind: "body", elementId, label: getOutlinerElementLabel(element, defaultExcalidrawLabelMap) || elementId };
     });
     const ropeConnectionOptions = connectionRopes.map(candidate => {
       const elementId = candidate.objectRef.elementId;
       const element = connectionElementById.get(elementId);
-      return { key: `rope:${candidate.id}`, kind: "rope", elementId, constraintId: candidate.id, label: getOutlinerElementLabel(element) || elementId };
+      return { key: `rope:${candidate.id}`, kind: "rope", elementId, constraintId: candidate.id, label: getOutlinerElementLabel(element, defaultExcalidrawLabelMap) || elementId };
     });
     const connectionOptions = [...bodyConnectionOptions, ...ropeConnectionOptions];
     const endpointElementId = endpoint => endpoint?.kind === "object" ? endpoint.objectRef?.elementId || "" : "";
@@ -27665,7 +27823,7 @@ function App() {
           followPlayhead={followTimelinePlayhead}
           arrangementLanes={arrangementIndex.lanes.map(lane => ({
             ...lane,
-            label: getOutlinerElementLabel(arrangementIndex.elementById.get(lane.elementId)) || lane.elementId,
+            label: getOutlinerElementLabel(arrangementIndex.elementById.get(lane.elementId), defaultExcalidrawLabelMap) || lane.elementId,
           }))}
           arrangementTakes={arrangementState.takes}
           selectedElementIds={selectedElementIds}
@@ -28123,11 +28281,12 @@ function App() {
               ["Strudel documentation overlay", documentationOverlayByLanguage.strudel ?? showDocumentationOverlay, value => setDocumentationOverlayByLanguage(previous => ({ ...previous, strudel: value }))],
               ["Show toolbar hints", showToolbarHints, value => { setShowToolbarHints(value); localStorage.setItem("underscores_show_toolbar_hints", value); }],
               ["Show canvas hover tips", showCanvasHoverTips, value => { setShowCanvasHoverTips(value); localStorage.setItem("underscores_show_canvas_hover_tips", value); }],
+              ["Screencast input", screencastInputVisible, updateScreencastInputVisibility],
               ["Show bottom alerts", showBottomNotifications, value => { setShowBottomNotifications(value); localStorage.setItem("underscores_show_bottom_notifications", value); }],
               ["Show performance monitor", showPerformanceOverlay, updatePerformanceVisibility],
               ["Show modifier debug coordinates", showDebugLayer, setShowDebugLayer],
             ].map(([label, checked, update]) => (
-              <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Code autocomplete" ? "Show or hide the completion list while editing code. Documentation tips are controlled separately above." : label === "Code documentation overlay" ? "Allow the compact floating documentation card when the tip trigger is Hover. The Info panel remains available according to the trigger setting." : label === "p5 documentation overlay" ? "Show the compact local p5 reference card when hovering p5 symbols. The Info panel can still show documentation when this popup is hidden." : label === "Strudel documentation overlay" ? "Show the compact local Strudel reference card when hovering documented pattern functions." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show canvas hover tips" ? "Show native help tooltips on interactive canvas outputs, such as Three.js camera controls. Disable this during performance or recording." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
+            <label className="settings-panel-check" key={label} {...infoProps(label, label === "Force desktop layout" ? "Keep the full docked desktop interface at smaller viewport sizes." : label === "Force __ UI theme" ? "Make Excalidraw panels, tool islands, popovers, settings, inputs, and menus use the active __ interface surfaces and colors." : label === "Code autocomplete" ? "Show or hide the completion list while editing code. Documentation tips are controlled separately above." : label === "Code documentation overlay" ? "Allow the compact floating documentation card when the tip trigger is Hover. The Info panel remains available according to the trigger setting." : label === "p5 documentation overlay" ? "Show the compact local p5 reference card when hovering p5 symbols. The Info panel can still show documentation when this popup is hidden." : label === "Strudel documentation overlay" ? "Show the compact local Strudel reference card when hovering documented pattern functions." : label === "Show toolbar hints" ? "Show native hover labels for toolbar controls." : label === "Show canvas hover tips" ? "Show native help tooltips on interactive canvas outputs, such as Three.js camera controls. Disable this during performance or recording." : label === "Screencast input" ? "Show a subtle draggable overlay with recent clicks, drags, scrolls, shortcuts, and tool changes. Toggle it with Command-Option-I on macOS or Ctrl-Alt-I elsewhere." : label === "Show bottom alerts" ? "Show transient status messages along the bottom edge." : label === "Show performance monitor" ? "Show the FPS and scene-workload monitor attached to Console or floating over the canvas." : "Overlay modifier coordinate diagnostics on the canvas.")}>
                 <span>{label}</span>
                 <input type="checkbox" checked={checked} onChange={event => update(event.target.checked)} />
               </label>
@@ -29090,6 +29249,7 @@ function App() {
         onDragOverCapture={handleCanvasMediaPreviewDragOver}
         onDropCapture={handleCanvasMediaPreviewDrop}
         style={{ width: "100%", height: "100%", position: "relative" }}
+        data-underscores-active-tool={!objectEyedropper && !physicsTool?.kind ? activeCanvasToolType : undefined}
         className={`${modifierDrawingActive && drawingPoints.length > 0 ? "custom-brush-drawing" : ""} ${objectEyedropper ? "underscores-object-eyedropper" : ""} ${physicsTool?.kind ? `physics-authoring-${physicsTool.kind}` : ""}`.trim()}
       >
         <LivecodeNodeOverlay
@@ -29145,6 +29305,18 @@ function App() {
           onChange={(elements, appState) => {
             underscoresPerformanceMonitor.recordScene(elements, appState);
             applyForceDesktopOverride(false);
+            const nextActiveToolType = appState.activeTool?.type || "selection";
+            if (activeCanvasToolTypeRef.current !== nextActiveToolType) {
+              activeCanvasToolTypeRef.current = nextActiveToolType;
+              setActiveCanvasToolType(nextActiveToolType);
+              emitScreencastInputEvent({
+                kind: "tool",
+                tool: nextActiveToolType,
+                icon: "✦",
+                label: "Tool",
+                detail: screencastToolLabel(nextActiveToolType),
+              });
+            }
             syncP5Overlay(elements, appState);
             syncSvgOverlay(elements, appState);
             syncLivecodeOverlay(elements, appState);
@@ -30338,7 +30510,7 @@ function App() {
                 setHistoryRecordFilter(filter);
                 localStorage.setItem("underscores_history_record_filter", filter);
               }}
-              onStart={() => startHistoryRecording({ play: historyLoopOverdub, loopOverdub: historyLoopOverdub })}
+              onStart={() => startHistoryRecording({ play: historyLoopOverdub, loopOverdub: historyLoopOverdub, append: historyLoopOverdub })}
               onPause={() => historyController.pause()}
               onStop={stopHistory}
               onPlay={playHistory}
@@ -31486,6 +31658,12 @@ function App() {
           onClose={() => updatePerformanceVisibility(false)}
         /> : null}
 
+        {screencastInputVisible ? <ScreencastInputOverlay
+          events={screencastInputEvents}
+          activeTool={activeCanvasToolType}
+          onClose={() => updateScreencastInputVisibility(false)}
+        /> : null}
+
         {relationshipGraph.systems.length > 0 ? <PhysicsOverlay
           runtime={physicsRuntimeRef.current}
           graph={relationshipGraph}
@@ -31781,7 +31959,7 @@ function App() {
               aria-hidden="true"
             >
               <circle className="underscores-session-virtual-cursor-halo" cx="8" cy="8" r="7" />
-              <path className="underscores-session-virtual-cursor-arrow" d="M2 2v25l7-7 5 12 5-2-5-12h10L2 2z" />
+              <SessionVirtualCursorIcon tool={cursorInput?.tool || strokeCursor?.tool || "selection"} />
             </svg>,
             // Keep the portal under the themed shell so custom laser and
             // foreground tokens remain available to the fixed cursor.
