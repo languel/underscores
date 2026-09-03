@@ -1508,10 +1508,18 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
     const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       const arranged = arrangementRuntime?.get?.(element.id) || null;
       const previewSource = config.kind === MEDIA_STREAM_KINDS.PREVIEW ? sourcesById.get(config.sourceId) : null;
+      // Preview configs intentionally contain only instance-level settings.
+      // Keep the source URL (or its browser-backed local file URL) when
+      // composing the instance; otherwise the config's default empty URL
+      // masks the model source and leaves the canvas renderer unmounted.
+      const previewSessionUrl = config.sourceId ? getMediaSessionFileUrl(config.sourceId) : "";
+      const isModelPreview = config.kind === MEDIA_STREAM_KINDS.PREVIEW && previewSource?.media?.mediaType === "model";
       const previewInstanceSource = previewSource
         ? { ...previewSource, media: {
             ...previewSource.media,
             ...config.media,
+            url: config.media?.url || previewSource.media?.url || previewSessionUrl,
+            fileName: config.media?.fileName || previewSource.media?.fileName || "",
             ...(arranged ? {
               playing: arranged.active,
               linkTransport: true,
@@ -1538,7 +1546,7 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         transform: `rotate(${Number(element.angle) || 0}rad)`,
         transformOrigin: "center",
       };
-      return <div key={element.id} className={`underscores-media-stream-frame is-${config.kind} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-underscores-media-stream-id={element.id} style={style}>
+      return <div key={element.id} className={`underscores-media-stream-frame is-${config.kind} ${isModelPreview ? "is-model" : ""} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-underscores-media-stream-id={element.id} style={style}>
         {selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW && <PreviewChrome
           config={config}
           source={previewSource}

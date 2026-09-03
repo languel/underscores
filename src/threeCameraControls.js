@@ -61,25 +61,79 @@ export const resolveThreeKeyboardMove = ({ keys, forward, right, step = 0 } = {}
 
 export const isThreeCameraResetShortcut = event => event?.key === "Home" && Boolean(event?.altKey);
 
+/**
+ * Frame one or more authored Three.js objects in a perspective camera.
+ *
+ * Model formats do not share a coordinate scale (or even a common origin),
+ * so a fixed camera distance is not enough for a general model viewer. Keep
+ * this helper independent from the pointer controller so Livecode and media
+ * previews can use the same bounds-based framing contract.
+ */
+export const fitThreeCameraToObjects = ({ camera, objects = [], padding = 1.18 } = {}) => {
+  if (!camera || !Array.isArray(objects) || !objects.length) return null;
+  const bounds = new THREE.Box3();
+  objects.filter(Boolean).forEach(object => bounds.expandByObject(object));
+  if (bounds.isEmpty()) return null;
+
+  const center = bounds.getCenter(new THREE.Vector3());
+  const size = bounds.getSize(new THREE.Vector3());
+  const radius = Math.max(0.0001, size.length() * 0.5);
+  const verticalFov = THREE.MathUtils.degToRad(Math.max(1, Number(camera.fov) || 45));
+  const aspect = Math.max(0.0001, Number(camera.aspect) || 1);
+  const horizontalFov = 2 * Math.atan(Math.tan(verticalFov * 0.5) * aspect);
+  const halfFov = Math.max(0.01, Math.min(verticalFov, horizontalFov) * 0.5);
+  const distance = radius / Math.sin(halfFov) * Math.max(1, Number(padding) || 1);
+  const minRadius = Math.max(0.05, radius * 1.05);
+  const maxRadius = Math.max(25, distance * 8);
+
+  // Preserve the camera's authored viewing direction while moving it to the
+  // model's center. The default camera looks down -Z, so a model at y=36 is
+  // framed from +Z rather than leaving the camera below its geometry.
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  if (forward.lengthSq() < 1e-8) forward.set(0, 0, -1);
+  forward.normalize();
+  camera.position.copy(center).addScaledVector(forward, -distance);
+  camera.lookAt(center);
+  // Keep the near plane clear when the user zooms toward the model, and the
+  // far plane clear when they zoom well beyond the initial fitted distance.
+  camera.near = Math.max(0.001, Math.min(radius * 0.05, distance * 0.01));
+  camera.far = Math.max(1000, maxRadius + radius * 1.5);
+  camera.updateProjectionMatrix();
+
+  return Object.freeze({
+    center,
+    radius,
+    distance,
+    minRadius,
+    maxRadius,
+  });
+};
+
 // A deliberately small, local camera controller for Three.js Livecode nodes.
 // It keeps camera state ephemeral (never in the patch) and leaves authored
 // camera animation alone until the learner interacts with the surface.
-export const createThreeCameraControls = ({ canvas, camera, target = new THREE.Vector3() } = {}) => {
+export const createThreeCameraControls = ({ canvas, camera, target = new THREE.Vector3(), minRadius = 1, maxRadius = 25 } = {}) => {
   if (!canvas || !camera) return { update: () => {}, dispose: () => {}, reset: () => {} };
 
   const focusTarget = new THREE.Vector3().copy(target);
   const offset = new THREE.Vector3().subVectors(camera.position, focusTarget);
-  const initialRadius = Math.max(0.1, offset.length() || 4);
-  const spherical = new THREE.Spherical(initialRadius, Math.acos(clamp(offset.y / initialRadius, -1, 1)), Math.atan2(offset.x, offset.z));
+  const radiusFloor = Math.max(0.001, Number(minRadius) || 1);
+  const radiusCeiling = Math.max(radiusFloor, Number(maxRadius) || 25);
+  const initialRadius = clamp(Math.max(0.1, offset.length() || 4), radiusFloor, radiusCeiling);
+  const initialPhi = Math.acos(clamp(offset.y / Math.max(0.1, offset.length() || 4), -1, 1));
+  const initialTheta = Math.atan2(offset.x, offset.z);
+  const spherical = new THREE.Spherical(initialRadius, initialPhi, initialTheta);
   const keys = new Set();
   let dirty = true;
   let pointerInside = false;
   let drag = null;
   let wheelMode = null;
   let wheelModeUntil = 0;
+  let gestureScale = null;
 
   const apply = () => {
-    spherical.radius = clamp(spherical.radius, 1, 25);
+    spherical.radius = clamp(spherical.radius, radiusFloor, radiusCeiling);
     spherical.phi = clamp(spherical.phi, 0.08, Math.PI - 0.08);
     camera.position.setFromSpherical(spherical).add(focusTarget);
     camera.lookAt(focusTarget);
@@ -194,6 +248,32 @@ export const createThreeCameraControls = ({ canvas, camera, target = new THREE.V
     spherical.radius *= Math.exp((Number(event.deltaY) || 0) * 0.001);
     dirty = true;
   };
+  // Safari/WebKit can expose a trackpad pinch as GestureEvents instead of the
+  // Ctrl-wheel stream used by Chromium. Keep this fallback on the same local
+  // controller so source viewers and underlay Livecode nodes share behavior.
+  const onGestureStart = event => {
+    const scale = Number(event?.scale);
+    gestureScale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+  };
+  const onGestureChange = event => {
+    const scale = Number(event?.scale);
+    if (!Number.isFinite(scale) || scale <= 0) return;
+    const previousScale = gestureScale || scale;
+    if (Math.abs(scale - previousScale) > 1e-6) {
+      spherical.radius *= previousScale / scale;
+      dirty = true;
+    }
+    gestureScale = scale;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+  };
+  const onGestureEnd = event => {
+    gestureScale = null;
+    event.preventDefault?.();
+    event.stopPropagation?.();
+  };
   const isCameraKey = event => ["w", "a", "s", "d", "q", "e", "Shift", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key);
   const onKeyDown = event => {
     if (!pointerInside && document.activeElement !== canvas) return;
@@ -215,7 +295,7 @@ export const createThreeCameraControls = ({ canvas, camera, target = new THREE.V
   const onContextMenu = event => { event.preventDefault(); event.stopPropagation(); };
   const reset = () => {
     focusTarget.copy(target);
-    spherical.set(initialRadius, Math.PI / 2, 0);
+    spherical.set(initialRadius, initialPhi, initialTheta);
     dirty = true;
   };
 
@@ -230,6 +310,9 @@ export const createThreeCameraControls = ({ canvas, camera, target = new THREE.V
   canvas.addEventListener("pointerup", endPointer);
   canvas.addEventListener("pointercancel", endPointer);
   canvas.addEventListener("wheel", onWheel, { passive: false });
+  canvas.addEventListener("gesturestart", onGestureStart, { passive: false });
+  canvas.addEventListener("gesturechange", onGestureChange, { passive: false });
+  canvas.addEventListener("gestureend", onGestureEnd, { passive: false });
   canvas.addEventListener("contextmenu", onContextMenu);
   window.addEventListener("keydown", onKeyDown);
   window.addEventListener("keyup", onKeyUp);
@@ -262,6 +345,9 @@ export const createThreeCameraControls = ({ canvas, camera, target = new THREE.V
       canvas.removeEventListener("pointerup", endPointer);
       canvas.removeEventListener("pointercancel", endPointer);
       canvas.removeEventListener("wheel", onWheel);
+      canvas.removeEventListener("gesturestart", onGestureStart);
+      canvas.removeEventListener("gesturechange", onGestureChange);
+      canvas.removeEventListener("gestureend", onGestureEnd);
       canvas.removeEventListener("contextmenu", onContextMenu);
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);

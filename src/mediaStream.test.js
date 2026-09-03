@@ -186,6 +186,7 @@ test("media patches preserve nested settings and infer image URLs", () => {
   assert.equal(next.media.mediaType, "image");
   assert.equal(next.media.playbackRate, 2);
   assert.equal(inferMediaType("photo.webp?size=2"), "image");
+  assert.equal(inferMediaType("https://example.test/bunny.zip"), "model");
 });
 
 test("media instance presentation settings normalize to safe values", () => {
@@ -211,6 +212,7 @@ test("media drops accept MIME-typed files and extension-only files", () => {
   assert.equal(isSupportedMediaFile({ type: "image/gif", name: "dog.gif" }), true);
   assert.equal(isSupportedMediaFile({ type: "", name: "clip.webm" }), true);
   assert.equal(isSupportedMediaFile({ type: "audio/mpeg", name: "voice.mp3" }), true);
+  assert.equal(isSupportedMediaFile({ type: "application/zip", name: "bunny.zip" }), true);
   assert.equal(isSupportedMediaFile({ type: "text/plain", name: "notes.txt" }), false);
 });
 

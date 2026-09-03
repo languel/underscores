@@ -6,7 +6,7 @@ import { createScriptConsole } from "./scriptConsole.js";
 import { isLivecodeTransportPlaying } from "./livecodeTransport.js";
 import { readWebglFrame, registerLivecodeCapture } from "./livecodeCapture.js";
 import { cacheThreeFrameConfig, compileThreeSource } from "./threeFrame.js";
-import { createThreeCameraControls, THREE_CAMERA_CONTROLS_HINT } from "./threeCameraControls.js";
+import { createThreeCameraControls, fitThreeCameraToObjects, THREE_CAMERA_CONTROLS_HINT } from "./threeCameraControls.js";
 import { loadThreeModel } from "./threeModel.js";
 
 const publishThreeStatus = (elementId, kind, message = "") => {
@@ -105,6 +105,7 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
     const disposers = [];
     const tickers = [];
     const captureRuntime = {};
+    const loadedModelRoots = [];
     let frame = 0;
     let lastNow = null;
     let lastTime = null;
@@ -204,7 +205,13 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
           if (typeof callback !== "function") throw new TypeError("onDispose(callback) requires a function.");
           disposers.push(callback);
         };
-        const loadModel = (url, options = {}) => loadThreeModel(url, options);
+        const loadModel = async (url, options = {}) => {
+          const loaded = await loadThreeModel(url, options);
+          loadedModelRoots.push(loaded.scene);
+          return loaded;
+        };
+        const initialCameraPosition = camera.position.clone();
+        const initialCameraQuaternion = camera.quaternion.clone();
         await compileThreeSource(config.source)(THREE, scene, camera, renderer, bridge, tick, onDispose, loadModel);
         if (cancelled) {
           release();
@@ -214,7 +221,21 @@ export default function ThreeFrame({ element, config: rawConfig, scriptRuntimeRe
         // Camera interaction is runtime-only. It is installed after authored
         // setup so scripts can still establish their initial camera, then a
         // learner can orbit/pan/zoom the patch without mutating scene state.
-        cameraControls = createThreeCameraControls({ canvas: renderer.domElement, camera });
+        // Loaded model formats commonly use very different units and origins.
+        // Automatically frame them only when the source left the default
+        // camera untouched; authored camera choreography remains authoritative.
+        const authoredCameraChanged = camera.position.distanceTo(initialCameraPosition) > 1e-5
+          || 1 - Math.abs(camera.quaternion.dot(initialCameraQuaternion)) > 1e-5;
+        const modelFraming = loadedModelRoots.length && !authoredCameraChanged
+          ? fitThreeCameraToObjects({ camera, objects: loadedModelRoots })
+          : null;
+        cameraControls = createThreeCameraControls({
+          canvas: renderer.domElement,
+          camera,
+          target: modelFraming?.center,
+          minRadius: modelFraming?.minRadius,
+          maxRadius: modelFraming?.maxRadius,
+        });
         renderer.domElement.title = showCanvasHoverTipsRef.current ? THREE_CAMERA_CONTROLS_HINT : "";
         // Paint the candidate while it is still detached. The current runtime
         // stays visible until this succeeds, so valid source edits swap one

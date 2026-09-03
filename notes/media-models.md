@@ -5,6 +5,7 @@ Underscores treats a 3D file as a Media source, alongside an image or movie. Dro
 ## Supported formats
 
 - **OBJ**: geometry-only meshes. Materials and textures are only available when the source includes the paths expected by the OBJ loader.
+- **OBJ ZIP archives**: a `.zip` can contain one or more OBJ files plus optional MTL and image textures. Underscores selects `scene.obj`, `model.obj`, or `bunny.obj` when present, otherwise the shortest OBJ path; companion files are resolved inside the archive.
 - **glTF / GLB**: scenes, materials, animation clips, and morph targets. GLB is the recommended single-file format because it bundles external resources.
 - **USD / USDA / USDC / USDZ**: loaded by the bundled Three.js USD loader. Feature and material coverage depends on the source file.
 
@@ -16,9 +17,11 @@ Select a model source in **Media** to see its runtime preview. When glTF animati
 
 - animation selection, play/pause, loop, and playback speed;
 - one blendshape slider per discovered morph target;
-- a standard-model picker for the Khronos Damaged Helmet, Khronos Animated Morph Cube, and MIT Utah Teapot examples.
+- a standard-model picker for the Khronos Damaged Helmet, Khronos Animated Morph Cube, CORS-enabled GitHub Utah Teapot and Stanford Bunny, and CORS-friendly Three.js Walt Head examples.
 
 Dragging the source icon onto the canvas creates a normal Media preview object. Its URL, source identity, and dimensions are persisted with the media source; the rendered WebGL scene remains runtime state. Multiple previews can refer to one source without duplicating the stored file.
+
+Canvas model previews are interactive by default. Click the model surface to focus it, then use the same Blender-style controls as a Three.js node: Option-drag to orbit, Shift-Option-drag to pan, Ctrl-Option-drag to zoom, and two-finger trackpad gestures for orbit/pan/zoom. W/S/A/D/Q/E and arrow keys work while the preview is focused. Animation and blendshape settings remain source-level controls in Media, so changing them updates every preview that uses that source.
 
 ## Livecode playback
 
@@ -55,6 +58,8 @@ The command palette and Media panel use these stable example IDs:
 /model example=damaged-helmet
 /model example=animated-morph-cube
 /model example=mit-teapot
+/model example=stanford-bunny-zip
+/model example=three-walt-head
 ```
 
-The examples are sourced from the [Khronos glTF Sample Assets catalog](https://github.khronos.org/glTF-Assets/) and the [MIT 6.837 Utah teapot](https://groups.csail.mit.edu/graphics/classes/6.837/F03/models/teapot.obj). The MIT teapot is a useful geometry smoke test, while the Khronos samples exercise physically based materials, animation, and morph targets. Network availability and CORS policy are properties of the remote host, so a failed remote load is reported in the Media panel without changing the authored scene.
+The examples are sourced from the [Khronos glTF Sample Assets catalog](https://github.khronos.org/glTF-Assets/), CORS-enabled GitHub mirrors of the [Utah teapot](https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/teapot.obj) and [Stanford Bunny](https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/stanford-bunny.obj), and a [Three.js OBJ sample](https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/obj/walt/WaltHead.obj). The `/model example=stanford-bunny-zip` id is retained for existing scenes and commands, but now points to the CORS-friendly standalone OBJ; dropped ZIP archives remain supported and are unpacked in memory with companion MTL/textures when included. Network availability and CORS policy are properties of the remote host, so a failed remote load is reported in the Media panel without changing the authored scene.
