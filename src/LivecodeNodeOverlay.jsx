@@ -193,8 +193,13 @@ export function LivecodeNodeEditor({
   );
 }
 
-function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTransport) {
-  const canvas = createScriptCanvasApi(scriptRuntimeRef);
+function createLivecodeBridge(element, node, scriptRuntimeRef, onStrudelTransport, transportRef) {
+  const canvas = createScriptCanvasApi(scriptRuntimeRef, {
+    getTime: () => {
+      const scoped = Number(transportRef.current?.time);
+      return Number.isFinite(scoped) ? scoped : undefined;
+    },
+  });
   const params = resolveScriptParameterValues(
     parseScriptParameters(node.source, { values: node.parameters }),
     scriptRuntimeRef,
@@ -301,8 +306,10 @@ function StrudelFrameVisualizerCanvas({ runtime, nodeId, enabled }) {
   />;
 }
 
-function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTransport }) {
+function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTransport, transport }) {
   const runtime = useMemo(() => getStrudelRuntimeManager(), []);
+  const transportRef = useRef(transport);
+  transportRef.current = transport;
   const elementId = element.id;
   const elementWidth = element.width;
   const elementHeight = element.height;
@@ -331,6 +338,7 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
       runtimeNode,
       scriptRuntimeRef,
       onStrudelTransport,
+      transportRef,
     ),
     [elementHeight, elementId, elementWidth, onStrudelTransport, parameterSignature, runtimeNode, scriptRuntimeRef],
   );
@@ -445,7 +453,7 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, ed
   }
   if (node.kind === "strudel" && isLivecodeNodeRunnable(node)) {
     if (isPublicSafeBuild) return <div className="livecode-student-build-unavailable" role="status">Strudel is not included in this student build.</div>;
-    return <StrudelNodeRuntime element={element} node={runtimeNode} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} />;
+    return <StrudelNodeRuntime element={element} node={runtimeNode} scriptRuntimeRef={scriptRuntimeRef} onStrudelTransport={onStrudelTransport} transport={transport} />;
   }
   return isLivecodeNodeRunnable(node)
     ? <PersistedLivecodeRuntime key={node.kind} element={element} node={node} scriptRuntimeRef={scriptRuntimeRef} transport={transport} showCanvasHoverTips={showCanvasHoverTips} />

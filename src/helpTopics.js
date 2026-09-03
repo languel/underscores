@@ -85,7 +85,7 @@ export const HELP_TOPICS = Object.freeze([
     id: "script-p5",
     title: "p5 quick reference",
     keywords: "p5 quick reference livecode javascript sketch setup draw createcanvas params transparent frame reset mediapipe blobatar avatar mouse follow pollock splatter action painting gesture",
-    body: "p5 sketches run as self-contained Livecode nodes. setup() runs once, draw() runs each frame, and __.element plus __.params connect the sketch to its host and declared controls. The Example menu includes MediaPipe · Blobatar: a small, theme-aware avatar whose body eases toward pose.nose and falls back to mouseX/mouseY when no Holistic frame is available, and Pollock / Splatter: an editable action-painting study where gesture speed controls paint thickness and every paint/spray control is exposed as a parameter. Change p5 version, transparent-surface, and frame-reset settings in Node settings when a sketch needs a different lifecycle.",
+    body: "p5 sketches run as self-contained Livecode nodes. setup() runs once, draw() runs each frame, and __.element plus __.params connect the sketch to its host and declared controls. __.transport.time (and its __.time shortcut) is the shared score clock, or the local playhead when the node is playing from a Clip lanes timeline. The Example menu includes MediaPipe · Blobatar: a small, theme-aware avatar whose body eases toward pose.nose and falls back to mouseX/mouseY when no Holistic frame is available, and Pollock / Splatter: an editable action-painting study where gesture speed controls paint thickness and every paint/spray control is exposed as a parameter. Change p5 version, transparent-surface, and frame-reset settings in Node settings when a sketch needs a different lifecycle.",
     examples: [
       "function setup() { createCanvas(__.element.width, __.element.height); }",
       "function draw() { circle(width / 2, height / 2, 80); }",
@@ -343,8 +343,8 @@ export const HELP_TOPICS = Object.freeze([
   {
     id: "panel-timeline",
     title: "Timeline",
-    keywords: "timeline transport play pause seek tempo beats timecode frames loop clips selection block shift",
-    body: "Timeline is the shared transport for frame, timecode, and beat-based work. Play, pause, seek, set tempo and meter, mark loops, and follow linked Livecode or walkthrough steps. Shift-click clips to select a contiguous range, Command/Ctrl-click to toggle individual clips, or drag across a lane area to make a block selection; selecting multiple clips also selects their canvas objects. Expanded takes show clips only in their object lanes, so the aggregate take row does not duplicate them.",
+    keywords: "timeline transport play pause seek tempo beats timecode frames loop clips selection block shift tracks soundtrack cues",
+    body: "Timeline is the shared transport for frame, timecode, and beat-based work. Play, pause, seek, set tempo and meter, mark loops, and follow linked Livecode or walkthrough steps. Object lanes show recorded arrangement takes. Switch to Clip lanes when the timeline should be a user-authored edit: add and rename tracks, reorder or mute/solo them, then drag History actions or Outliner objects (including Livecode, media, and text) onto a track. Clip timing is independent of the source object's layer; Livecode and media follow the clip's local playhead and history command/scene/MIDI cues fire when their clip starts. Shift-click clips to select a contiguous range, Command/Ctrl-click to toggle individual clips, or drag across a lane area to make a block selection. Expanded object takes show clips only in their object lanes, so the aggregate take row does not duplicate them.",
   },
   {
     id: "panel-mixer",

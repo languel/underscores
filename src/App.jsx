@@ -72,10 +72,16 @@ import {
   createArrangementIndex,
   createArrangementState,
   createArrangementTake,
+  createTimelineClip,
+  createTimelineClipIndex,
+  createTimelineTrack,
+  evaluateClipAtTime,
   getArrangementProjectEnd,
+  getTimelineProjectEnd,
   getElementArrangementClips,
   migrateGestureToArrangement,
   queryArrangementLaneAtTime,
+  selectTimelineClipAtTime,
   selectArrangementClipAtTime,
   setElementArrangementClips,
   splitClipAcrossLoop,
@@ -4809,7 +4815,9 @@ function App() {
 
   const [scoreTime, setScoreTime] = useState(0);
   const [scorePlaying, setScorePlaying] = useState(false);
-  const [arrangementState, setArrangementState] = useState(() => createArrangementState());
+  const [arrangementState, setArrangementState] = useState(() => createArrangementState({
+    timelineMode: localStorage.getItem("underscores_timeline_mode") === "clips" ? "clips" : "objects",
+  }));
   const arrangementStateRef = useRef(arrangementState);
   arrangementStateRef.current = arrangementState;
   const [arrangementRecordArmed, setArrangementRecordArmed] = useState(false);
@@ -4822,6 +4830,7 @@ function App() {
   const arrangementFinalizePendingRef = useRef(() => null);
   const previousArrangementTransportPlayingRef = useRef(scorePlaying);
   const arrangementStaticRuntimeRef = useRef(new Map());
+  const timelineClipPlaybackRef = useRef({ ids: new Set(), time: 0 });
   const [playlistState, setPlaylistState] = useState(() => createPlaylistState());
   const playlistStateRef = useRef(playlistState);
   playlistStateRef.current = playlistState;
@@ -4970,14 +4979,40 @@ function App() {
     arrangementState,
     { context: timeContext },
   ), [arrangementSceneElements, arrangementState, timeContext]);
+  const timelineClipIndex = useMemo(() => createTimelineClipIndex(arrangementState, { context: timeContext }), [arrangementState, timeContext]);
   const arrangementProjectEnd = useMemo(() => getArrangementProjectEnd({
     elements: arrangementSceneElements,
     loopEnd: transportLoopEnabled ? transportLoopEnd : 0,
     minimum: 10,
     context: timeContext,
   }), [arrangementSceneElements, timeContext, transportLoopEnabled, transportLoopEnd]);
+  const timelineProjectEnd = useMemo(() => getTimelineProjectEnd(arrangementState, { context: timeContext, minimum: 0 }), [arrangementState, timeContext]);
   const arrangementRuntime = useMemo(() => {
     const runtime = new Map();
+    if (arrangementState.timelineMode === "clips") {
+      const clipsByElement = new Map();
+      timelineClipIndex.clips.forEach(entry => {
+        if (!entry.clip.elementId) return;
+        const entries = clipsByElement.get(entry.clip.elementId) || [];
+        entries.push(entry.clip);
+        clipsByElement.set(entry.clip.elementId, entries);
+      });
+      clipsByElement.forEach((clips, elementId) => {
+        const selected = selectTimelineClipAtTime(clips, scoreTime, {
+          arrangementState,
+          context: timeContext,
+          projectEnd: Math.max(arrangementProjectEnd, timelineProjectEnd),
+        });
+        runtime.set(elementId, {
+          controlled: true,
+          adapterKind: getArrangementAdapterKind(arrangementIndex.elementById.get(elementId)),
+          active: Boolean(selected),
+          clip: selected?.clip || null,
+          state: selected?.state || null,
+        });
+      });
+      return runtime;
+    }
     arrangementIndex.lanes.forEach(lane => {
       const element = arrangementIndex.elementById.get(lane.elementId);
       const gesture = normalizeGestureTrack(element?.customData?.underscoresGesture);
@@ -4996,7 +5031,7 @@ function App() {
       });
     });
     return runtime;
-  }, [arrangementIndex, arrangementProjectEnd, arrangementState, scoreTime, timeContext]);
+  }, [arrangementIndex, arrangementProjectEnd, arrangementState, scoreTime, timeContext, timelineClipIndex, timelineProjectEnd]);
   const mediaPlaybackOverrides = useMemo(() => {
     const overrides = { ...legacyMediaPlaybackOverrides };
     const arrangedBySource = new Map();
@@ -10441,6 +10476,113 @@ function App() {
     setSceneExchangeStatus(`Added ${targets.length} arrangement clip${targets.length === 1 ? "" : "s"} at the playhead.`);
     return { elementIds: targets.map(element => element.id) };
   }, [timeContext, transportFps, transportLoopEnd, transportLoopStart]);
+
+  const patchArrangementTimeline = useCallback((patch = {}) => {
+    const next = createArrangementState({ ...arrangementStateRef.current, ...patch });
+    arrangementStateRef.current = next;
+    setArrangementState(next);
+    return next;
+  }, []);
+
+  const setArrangementTimelineMode = useCallback(mode => {
+    const nextMode = mode === "clips" ? "clips" : "objects";
+    let tracks = arrangementStateRef.current.clipTracks;
+    if (nextMode === "clips" && tracks.length === 0) {
+      tracks = [
+        createTimelineTrack({ id: "track-1", name: "Track 1", order: 0 }),
+        createTimelineTrack({ id: "track-2", name: "Track 2", order: 1 }),
+        createTimelineTrack({ id: "track-3", name: "Track 3", order: 2 }),
+      ];
+    }
+    patchArrangementTimeline({ timelineMode: nextMode, clipTracks: tracks });
+    localStorage.setItem("underscores_timeline_mode", nextMode);
+  }, [patchArrangementTimeline]);
+
+  const addArrangementTimelineTrack = useCallback(() => {
+    const current = arrangementStateRef.current;
+    const order = current.clipTracks.length;
+    const track = createTimelineTrack({ name: `Track ${order + 1}`, order }, order);
+    patchArrangementTimeline({ clipTracks: [...current.clipTracks, track] });
+    return track;
+  }, [patchArrangementTimeline]);
+
+  const patchArrangementTimelineTrack = useCallback((trackId, patch) => {
+    const current = arrangementStateRef.current;
+    patchArrangementTimeline({ clipTracks: current.clipTracks.map(track => track.id === trackId ? createTimelineTrack({ ...track, ...patch }) : track) });
+  }, [patchArrangementTimeline]);
+
+  const moveArrangementTimelineTrack = useCallback((trackId, direction) => {
+    const current = arrangementStateRef.current;
+    const tracks = [...current.clipTracks].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id));
+    const index = tracks.findIndex(track => track.id === trackId);
+    const target = index + Math.sign(direction || 0);
+    if (index < 0 || target < 0 || target >= tracks.length) return;
+    [tracks[index], tracks[target]] = [tracks[target], tracks[index]];
+    patchArrangementTimeline({ clipTracks: tracks.map((track, order) => createTimelineTrack({ ...track, order }, order)) });
+  }, [patchArrangementTimeline]);
+
+  const addTimelineClipFromDrop = useCallback((payload = {}, startValue = 0, trackId = "") => {
+    const current = arrangementStateRef.current;
+    let tracks = current.clipTracks;
+    if (!tracks.length) tracks = [createTimelineTrack({ id: "track-1", name: "Track 1", order: 0 })];
+    const targetTrackId = trackId && tracks.some(track => track.id === trackId) ? trackId : tracks[0].id;
+    const start = Math.max(0, Number(startValue) || 0);
+    const oneBar = Math.max(1 / transportFps, resolveTimeValue("1 bar", timeContext));
+    const action = payload.historyAction || null;
+    const elementIds = Array.isArray(payload.elementIds) ? [...new Set(payload.elementIds.map(String))] : [];
+    const targets = payload.source === "element" ? elementIds : [null];
+    const sceneElements = new Map((excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || []).map(element => [element.id, element]));
+    const clips = targets.map(elementId => {
+      const element = elementId ? sceneElements.get(elementId) : null;
+      const media = element ? normalizeMediaStreamConfig(element.customData?.underscoresMediaStream) : null;
+      const isMedia = Boolean(element && isMediaStreamElement(element));
+      const isLivecode = Boolean(element && isLivecodeNodeElement(element));
+      const intrinsicMediaDuration = isMedia && media?.sourceId
+        ? Number(getMediaRuntimeSource(media.sourceId)?.element?.duration)
+        : 0;
+      const source = action ? "history" : isMedia ? "media" : isLivecode ? "livecode" : "element";
+      const duration = action
+        ? Math.max(1 / transportFps, Number(action.duration) || (action.kind === "stroke" ? 0.001 : oneBar))
+        : Math.max(1 / transportFps, intrinsicMediaDuration > 0 ? intrinsicMediaDuration : oneBar);
+      const label = action
+        ? (action.kind === "command" ? action.commandId || "Command" : action.kind === "input" ? "Input gesture" : action.kind === "stroke" ? "Stroke" : action.kind)
+        : getOutlinerElementLabel(element, defaultExcalidrawLabelMap) || elementId || "Clip";
+      return createTimelineClip({
+        trackId: targetTrackId,
+        source,
+        label,
+        elementId,
+        historyActionId: action?.id,
+        historyAction: action,
+        timing: {
+          start,
+          startValue: createTimeValue(start, start, timeContext),
+          duration,
+          durationValue: createTimeValue(duration, duration, timeContext),
+          durationMode: "fixed",
+          sourceOffset: 0,
+          rate: 1,
+          loopMode: "once",
+        },
+      }, timeContext);
+    });
+    const next = createArrangementState({ ...current, timelineMode: "clips", clipTracks: tracks, timelineClips: [...current.timelineClips, ...clips] });
+    arrangementStateRef.current = next;
+    setArrangementState(next);
+    setSceneExchangeStatus(`Added ${clips.length} timeline clip${clips.length === 1 ? "" : "s"} to ${tracks.find(track => track.id === targetTrackId)?.name || "track"}.`);
+    return clips;
+  }, [defaultExcalidrawLabelMap, timeContext, transportFps]);
+
+  const editTimelineClip = useCallback((clipId, timing) => {
+    const current = arrangementStateRef.current;
+    patchArrangementTimeline({ timelineClips: current.timelineClips.map(clip => clip.id === clipId ? createTimelineClip({ ...clip, timing: { ...clip.timing, ...timing } }, timeContext) : clip) });
+  }, [patchArrangementTimeline, timeContext]);
+
+  const deleteTimelineClip = useCallback(clipId => {
+    const current = arrangementStateRef.current;
+    patchArrangementTimeline({ timelineClips: current.timelineClips.filter(clip => clip.id !== clipId) });
+    if (selectedArrangementClipId === clipId) setSelectedArrangementClipId("");
+  }, [patchArrangementTimeline, selectedArrangementClipId]);
 
   const editArrangementClip = useCallback((elementId, clipId, patch, { commitToHistory = true } = {}) => updateElementArrangement(
     elementId,
@@ -21595,6 +21737,7 @@ function App() {
         const importedArrangement = createArrangementState(authoredState.arrangement);
         arrangementStateRef.current = importedArrangement;
         setArrangementState(importedArrangement);
+        localStorage.setItem("underscores_timeline_mode", importedArrangement.timelineMode);
         const importedPlaylist = createPlaylistState(authoredState.playlist);
         playlistStateRef.current = importedPlaylist;
         setPlaylistState(importedPlaylist);
@@ -22077,6 +22220,39 @@ function App() {
     }
   };
 
+  // In clip-oriented timelines, History actions become authored cue clips.
+  // Dispatch command/scene/stroke/MIDI cues once when their clip becomes
+  // active; ordinary playback remains independent when the timeline is in
+  // object/layer mode.
+  useEffect(() => {
+    const playback = timelineClipPlaybackRef.current;
+    if (arrangementState.timelineMode !== "clips" || !scorePlaying) {
+      playback.ids = new Set();
+      playback.time = scoreTime;
+      return;
+    }
+    if (scoreTime < playback.time - 0.01) playback.ids = new Set();
+    const active = timelineClipIndex.clips
+      .map(entry => ({ ...entry, state: evaluateClipAtTime(entry.clip, scoreTime, { context: timeContext, projectEnd: Math.max(arrangementProjectEnd, timelineProjectEnd) }) }))
+      .filter(entry => entry.state.active && entry.clip.enabled && entry.clip.historyAction);
+    const activeIds = new Set(active.map(entry => entry.clip.id));
+    active.filter(entry => !playback.ids.has(entry.clip.id)).forEach(entry => {
+      const action = entry.clip.historyAction;
+      if (["command", "scene", "stroke", "midi", "presentation"].includes(action?.kind)) {
+        void runtimeCallbacksRef.current.applyAction?.(action, { emitMidi: historyMidiArmed });
+      } else if (action?.kind === "input") {
+        const clipDuration = Math.max(0, Number(entry.state.end) - Number(entry.state.start));
+        runtimeCallbacksRef.current.walkthroughPerformInput?.({
+          ...action,
+          duration: clipDuration,
+          args: { ...(action.args || {}), duration: clipDuration },
+        });
+      }
+    });
+    playback.ids = activeIds;
+    playback.time = scoreTime;
+  }, [arrangementProjectEnd, arrangementState.timelineMode, historyMidiArmed, scorePlaying, scoreTime, timeContext, timelineClipIndex, timelineProjectEnd]);
+
   runtimeCallbacksRef.current.restoreBaseline = restoreSessionBaseline;
   runtimeCallbacksRef.current.applyAction = applySessionAction;
   runtimeCallbacksRef.current.sceneCommand = (commandId, args = {}) => applySessionAction({
@@ -22328,6 +22504,7 @@ function App() {
     const automationEnd = collectAutomationKeys(elements).reduce((end, key) => Math.max(end, Number(key.time) || 0), 0);
     const scoreEnd = Math.max(
       arrangementProjectEnd,
+      timelineProjectEnd,
       automationEnd,
       ...elements.filter(element => !element.isDeleted && getScoreData(element)?.role).map(element => {
         const timing = resolveIannixObjectTiming(element, { context: timeContext, grid: globalGridRef.current });
@@ -27850,6 +28027,30 @@ function App() {
           <TimeValueInput aria-label="Loop end" data-route-path="transport.loop.end" value={transportLoopEndValue} context={timeContext} defaultValue="10 s" minSeconds={1 / transportFps} onChange={(next, seconds) => { setTransportLoopEndValue(next); setTransportLoopEnd(Math.max(transportLoopStart + 1 / transportFps, seconds)); setTransportLoopEnabled(true); }} />
         </div>
 
+        <div className="iannix-timeline-mode-controls" role="group" aria-label="Timeline mode">
+          <button
+            type="button"
+            className={arrangementState.timelineMode === "objects" ? "active" : ""}
+            onClick={() => setArrangementTimelineMode("objects")}
+            aria-label="Object lanes"
+            aria-pressed={arrangementState.timelineMode === "objects"}
+            title="Object lanes · one lane per canvas object"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="3" height="3" rx="0.5" /><path d="M9 5h11" /><rect x="3.5" y="10.5" width="3" height="3" rx="0.5" /><path d="M9 12h11" /><rect x="3.5" y="17.5" width="3" height="3" rx="0.5" /><path d="M9 19h11" /></svg>
+          </button>
+          <button
+            type="button"
+            className={arrangementState.timelineMode === "clips" ? "active" : ""}
+            onClick={() => setArrangementTimelineMode("clips")}
+            aria-label="Clip lanes"
+            aria-pressed={arrangementState.timelineMode === "clips"}
+            title="Clip lanes · user-managed tracks"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="5" rx="1" /><rect x="3.5" y="14.5" width="11" height="5" rx="1" /></svg>
+          </button>
+          {arrangementState.timelineMode === "clips" ? <button type="button" className="timeline-track-add" onClick={addArrangementTimelineTrack} title="Add timeline track" aria-label="Add timeline track">+</button> : null}
+        </div>
+
         <TransportTimeline
           duration={scoreEnd}
           currentTime={scoreTime}
@@ -27874,6 +28075,9 @@ function App() {
             label: getOutlinerElementLabel(arrangementIndex.elementById.get(lane.elementId), defaultExcalidrawLabelMap) || lane.elementId,
           }))}
           arrangementTakes={arrangementState.takes}
+          timelineMode={arrangementState.timelineMode}
+          timelineTracks={timelineClipIndex.tracks}
+          timelineClips={timelineClipIndex.clips.map(entry => entry.clip)}
           selectedElementIds={selectedElementIds}
           selectedClipId={selectedArrangementClipId}
           onClipSelect={selectArrangementClip}
@@ -27881,6 +28085,11 @@ function App() {
           onClipDelete={deleteArrangementClip}
           onTakePatch={patchArrangementTake}
           onTakeDelete={deleteArrangementTake}
+          onTimelineClipDrop={addTimelineClipFromDrop}
+          onTimelineClipEdit={editTimelineClip}
+          onTimelineClipDelete={deleteTimelineClip}
+          onTimelineTrackPatch={patchArrangementTimelineTrack}
+          onTimelineTrackMove={moveArrangementTimelineTrack}
         />
       </div>
     );

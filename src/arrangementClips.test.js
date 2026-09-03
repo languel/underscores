@@ -6,8 +6,12 @@ import {
   createArrangementClip,
   createArrangementIndex,
   createArrangementState,
+  createTimelineClip,
+  createTimelineClipIndex,
+  createTimelineTrack,
   evaluateClipAtTime,
   getArrangementProjectEnd,
+  getTimelineProjectEnd,
   getElementArrangementClips,
   migrateGestureToArrangement,
   queryArrangementLaneAtTime,
@@ -15,6 +19,7 @@ import {
   removeElementArrangementClip,
   selectArrangementClipAtTime,
   splitClipAcrossLoop,
+  selectTimelineClipAtTime,
 } from "./arrangementClips.js";
 
 const clip = overrides => createArrangementClip({
@@ -144,4 +149,20 @@ test("indexed schedule limits a 500 clip project to playhead-near candidates", (
   const candidates = index.lanes.flatMap(lane => queryArrangementLaneAtTime(lane, 10.5));
   assert.equal(candidates.length, 100);
   assert.ok(candidates.every(clip => clip.timing.start === 10));
+});
+
+test("clip timeline keeps user tracks independent from source elements", () => {
+  const state = createArrangementState({
+    timelineMode: "clips",
+    clipTracks: [createTimelineTrack({ id: "music", name: "Music", order: 1 }), createTimelineTrack({ id: "visual", name: "Visual", order: 0 })],
+    timelineClips: [createTimelineClip({ id: "visual-clip", trackId: "visual", source: "element", elementId: "node", label: "p5", timing: { start: 2, duration: 3 } }), createTimelineClip({ id: "cue", trackId: "music", source: "history", historyAction: { id: "a", kind: "command", commandId: "scene.update" }, timing: { start: 1, duration: 1 } })],
+  });
+  const index = createTimelineClipIndex(state);
+  assert.deepEqual(index.tracks.map(track => track.id), ["visual", "music"]);
+  assert.equal(index.tracks[0].clips[0].elementId, "node");
+  assert.equal(selectTimelineClipAtTime(index.tracks[0].clips, 2.5, { arrangementState: state })?.clip.id, "visual-clip");
+  assert.equal(selectTimelineClipAtTime(index.tracks[1].clips, 1.5, { arrangementState: state })?.clip.id, "cue");
+  assert.equal(getTimelineProjectEnd(state), 5);
+  const muted = createArrangementState({ ...state, clipTracks: state.clipTracks.map(track => track.id === "visual" ? { ...track, muted: true } : track) });
+  assert.equal(selectTimelineClipAtTime(index.tracks[0].clips, 2.5, { arrangementState: muted }), null);
 });

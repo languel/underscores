@@ -35,7 +35,12 @@ const disposeScene = scene => {
 };
 
 const createBridge = (element, config, scriptRuntimeRef, transportGate) => {
-  const canvas = createScriptCanvasApi(scriptRuntimeRef);
+  const canvas = createScriptCanvasApi(scriptRuntimeRef, {
+    getTime: () => {
+      const scoped = Number(transportGate.transport?.time);
+      return Number.isFinite(scoped) ? scoped : undefined;
+    },
+  });
   const parameters = parseScriptParameters(config.source, { values: config.parameters || {} });
   const params = resolveScriptParameterValues(parameters, scriptRuntimeRef, canvas);
   const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
