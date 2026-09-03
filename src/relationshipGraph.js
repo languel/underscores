@@ -170,6 +170,14 @@ export const normalizePhysicsWorld = value => ({
   collisionLayers: normalizePhysicsCollisionLayers(value?.collisionLayers),
 });
 
+// Solver vectors are [x, y]. The public API speaks {x, y} everywhere else, so
+// both spellings are accepted wherever a script hands one in.
+export const normalizePhysicsVector = value => {
+  if (Array.isArray(value)) return [Number(value[0]) || 0, Number(value[1]) || 0];
+  if (value && typeof value === "object") return [Number(value.x) || 0, Number(value.y) || 0];
+  return [0, 0];
+};
+
 export const normalizePhysicsEndpoint = value => {
   if (!value || typeof value !== "object") return null;
   if (value.kind === "none") return { kind: "none" };

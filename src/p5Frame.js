@@ -306,6 +306,135 @@ p.draw = () => {
 };`,
   }),
   Object.freeze({
+    id: "wayang-rod-controller",
+    name: "MediaPipe · Wayang rod controller",
+    mode: "instance",
+    source: `// Puppeteer's rods for the Wayang and mobile physics example.
+// Run /physics demo wayang first, then run this node.
+//
+// This surface is the control panel: its whole area maps onto the puppet's
+// reach. MediaPipe wrists drive both hands when Holistic is live; the mouse
+// drives the near hand otherwise, so the node is useful before camera setup.
+// Nothing here teleports a body. Each frame it applies an impulse toward the
+// target, so the arms stay under the solver and keep their joint limits.
+
+// @param strength = 1 (0..3, step: 0.05)
+// @param mirror = true (boolean)
+// @param showTargets = true (boolean)
+
+const SYSTEM_NAME = "Wayang and mobile";
+const WRISTS = Object.freeze({ "Left hand": "pose.left_wrist", "Right hand": "pose.right_wrist" });
+
+let rig = null;
+let holistic = null;
+let live = false;
+
+// Resolve the rig through the public physics API rather than a private handle:
+// bodies carry the readable name the example authored, and each one points at
+// an ordinary canvas object we can read positions from.
+const findRig = () => {
+  const physics = __.api && __.api.physics;
+  if (!physics) return null;
+  const system = physics.systems.list().find(item => item.name === SYSTEM_NAME);
+  if (!system) return null;
+  const hands = physics.bodies.list()
+    .filter(body => body.systemId === system.id && body.name === "Puppet hand")
+    .map(body => {
+      const elementId = body.objectRef && body.objectRef.elementId;
+      const object = elementId ? __.canvas.get(elementId) : null;
+      return object ? { bodyId: body.id, elementId, name: object.name } : null;
+    })
+    .filter(Boolean);
+  const torso = __.canvas.find(object => object.name === "Puppet body")[0];
+  return hands.length && torso ? { systemId: system.id, hands, torso } : null;
+};
+
+// The puppet's reach, in scene coordinates. Both control schemes map into this
+// one box so the mouse and the camera address the same space.
+const reachBox = torso => ({
+  x: torso.x + torso.width / 2 - 160,
+  y: torso.y - 24,
+  width: 320,
+  height: 210,
+});
+
+const readWrist = name => {
+  holistic = holistic || (__.streams && __.streams.list && __.streams.list().find(stream => stream.kind === "holistic"));
+  const feature = holistic && holistic.feature && holistic.feature(WRISTS[name], { space: "normalized" });
+  const point = feature && (feature.position || feature.normalized);
+  return feature && feature.available && Number.isFinite(point && point.x) && Number.isFinite(point.y)
+    ? { x: __.params.mirror ? 1 - point.x : point.x, y: point.y }
+    : null;
+};
+
+const centreOf = object => ({ x: object.x + object.width / 2, y: object.y + object.height / 2 });
+
+p.setup = () => {
+  p.createCanvas(__.element.width, __.element.height);
+  p.textFont("monospace");
+  p.textSize(11);
+};
+
+p.draw = () => {
+  p.background(14, 16, 22);
+  rig = rig && __.canvas.get(rig.hands[0].elementId) ? rig : findRig();
+  if (!rig) {
+    p.fill(230, 170, 90);
+    p.text("No Wayang rig found.", 12, 22);
+    p.text("Run /physics demo wayang, then this node.", 12, 40);
+    return;
+  }
+
+  const box = reachBox(__.canvas.get(rig.torso.id) || rig.torso);
+  const toScene = point => ({ x: box.x + point.x * box.width, y: box.y + point.y * box.height });
+  const toLocal = point => ({
+    x: ((point.x - box.x) / box.width) * p.width,
+    y: ((point.y - box.y) / box.height) * p.height,
+  });
+
+  live = false;
+  for (const hand of rig.hands) {
+    const object = __.canvas.get(hand.elementId);
+    if (!object) continue;
+    const wrist = readWrist(hand.name);
+    // The mouse only ever drives the near hand: one pointer cannot be two rods.
+    const usingMouse = !wrist && hand.name === "Right hand" && p.mouseX >= 0 && p.mouseX <= p.width && p.mouseY >= 0 && p.mouseY <= p.height;
+    if (wrist) live = true;
+    const normalized = wrist || (usingMouse ? { x: p.mouseX / p.width, y: p.mouseY / p.height } : null);
+    if (!normalized) continue;
+
+    const target = toScene(normalized);
+    const current = centreOf(object);
+    // A proportional pull, capped so a large jump cannot fling the arm. The
+    // body's own linear damping supplies the braking half of the spring.
+    const gain = 22 * Math.max(0, Number(__.params.strength) || 0);
+    const push = { x: (target.x - current.x) * gain, y: (target.y - current.y) * gain };
+    const magnitude = Math.hypot(push.x, push.y);
+    const limit = 26000;
+    const scale = magnitude > limit ? limit / magnitude : 1;
+    __.api.physics.impulse(rig.systemId, hand.bodyId, { x: push.x * scale, y: push.y * scale });
+
+    if (__.params.showTargets) {
+      const localTarget = toLocal(target);
+      const localHand = toLocal(current);
+      p.stroke(wrist ? p.color(120, 220, 160) : p.color(120, 190, 255));
+      p.strokeWeight(1);
+      p.line(localHand.x, localHand.y, localTarget.x, localTarget.y);
+      p.noStroke();
+      p.fill(wrist ? p.color(120, 220, 160) : p.color(120, 190, 255));
+      p.circle(localTarget.x, localTarget.y, 9);
+      p.fill(230, 160, 70);
+      p.circle(localHand.x, localHand.y, 7);
+    }
+  }
+
+  p.noStroke();
+  p.fill(190, 200, 215);
+  p.text(live ? "MediaPipe wrists · both rods" : "Mouse · right rod", 12, 18);
+  p.text("strength " + Number(__.params.strength).toFixed(2), 12, p.height - 10);
+};`,
+  }),
+  Object.freeze({
     id: "mediapipe-blobatar",
     name: "MediaPipe · Blobatar",
     mode: "instance",

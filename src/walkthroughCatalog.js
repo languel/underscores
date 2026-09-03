@@ -98,6 +98,8 @@ export const PHYSICS_WALKTHROUGH_ID = "physics-first-instrument-v1";
 
 export const TIMELINE_WALKTHROUGH_ID = "timeline-arrangement-v1";
 
+export const WAYANG_WALKTHROUGH_ID = "wayang-mobile-instrument-v1";
+
 export const MARIONETTE_WALKTHROUGH_ID = "physics-marionette-study-v1";
 
 export const ONBOARDING_WALKTHROUGH = createWalkthrough({
@@ -380,6 +382,8 @@ export const PHYSICS_WALKTHROUGH = createWalkthrough({
       focusTarget: "panel.physics",
       cues: [
         { type: "command", commandId: "physics.play", at: 0.3 },
+        // Also gives the playing state a beat to reach the assertion context.
+        { type: "command", commandId: "panel.open", args: { panelId: "physics" }, at: 1.4 },
       ],
       advance: { mode: "assertion", assertion: { type: "physics.state", minSystems: 1, playing: true } },
       hint: "Use Play in the Physics panel if the world is still. Reset returns everything to its authored starting pose.",
@@ -537,6 +541,114 @@ export const TIMELINE_WALKTHROUGH = createWalkthrough({
   ],
 });
 
+// Two traditions meeting on one canvas: a wayang kulit rod puppet, whose arms
+// are articulated at shoulder and elbow so a puppeteer's rods can place a hand
+// precisely, and a Calder mobile hung with Miro-flavoured shapes. The puppet
+// plays the mobile. Every stage leaves a patch worth stopping on.
+export const WAYANG_WALKTHROUGH = createWalkthrough({
+  id: WAYANG_WALKTHROUGH_ID,
+  title: "Wayang puppet and a Miro mobile",
+  description: "Build an articulated wayang-style rod puppet facing a Calder mobile of Miro-flavoured shapes, turn its strikes into a slendro-inspired instrument, then play it with the mouse and with MediaPipe wrists.",
+  clockMode: "free",
+  defaultRate: 1,
+  steps: [
+    {
+      id: "build",
+      title: "1. A puppet and an instrument",
+      narration: "Two traditions, one patch. On the left, a **wayang kulit** rod puppet: a body that swings on a single rod, with arms jointed at the shoulder *and* the elbow, which is what lets a puppeteer place a hand exactly.\n\nOn the right, a **Calder mobile** hung with Miro-flavoured shapes. The puppet is going to play it.",
+      info: "Everything here is ordinary canvas objects with physics roles. Open Outliner and you will find Puppet head, Right hand, Red chime, and the rest by name rather than by generated id.",
+      focusTarget: "panel.physics",
+      cues: [
+        { type: "command", commandId: "panel.open", args: { panelId: "physics" }, at: 0 },
+        { type: "command", commandId: "physics.example.wayang", at: 0.35 },
+        { type: "command", commandId: "excalidraw.view.frameAll", at: 1 },
+      ],
+      advance: { mode: "assertion", assertion: { type: "physics.state", minSystems: 1, minBodies: 12, minConstraints: 12 } },
+      hint: "Look for the ochre puppet on the left and the black bars with red, blue, and yellow shapes on the right.",
+    },
+    {
+      id: "read-rig",
+      title: "2. Read the two rigs",
+      narration: "The puppet: one **world hinge** at the top of the body, a **weld** holding the head, then a hinge at each shoulder and each elbow. Two segments per arm is the whole trick — one segment can only sweep an arc, two can reach a point.\n\nThe mobile: one **world hinge** at the top bar's balance point, and every wire is a real body with a hinge at each end. A bar hung from a single link would be free to spin about that one point; hinged wires are what make it swing like a mobile instead of flailing.",
+      info: "The top bar's hook is not guessed. The builder computes the centre of mass of everything the bar carries and pivots there, so the mobile balances by construction rather than by a hand-tuned number.",
+      focusTarget: "panel.outliner",
+      cues: [
+        { type: "command", commandId: "panel.open", args: { panelId: "outliner" }, at: 0.2 },
+      ],
+      advance: { mode: "continue" },
+      hint: "Select any part and open Properties to see its Physics role, collider, and material.",
+    },
+    {
+      id: "play",
+      title: "3. Let it hang",
+      narration: "Press play. The arms fall to a rest pose, the mobile finds its balance, and both settle.\n\nThey settle because every part carries linear and angular damping. Without it a mobile on one hook is a nearly lossless pendulum: it never stops, and there is no rest position for a performer to aim at.",
+      info: "The puppet and the mobile are on separate raw collision groups, so puppet parts pass through each other while both collide with the mobile, and the mobile's shapes clink against each other. That is why no hidden layer configuration is needed for the rig to behave.",
+      focusTarget: "panel.physics",
+      cues: [
+        { type: "command", commandId: "physics.play", at: 0.3 },
+        // Also gives the playing state a beat to reach the assertion context.
+        { type: "command", commandId: "panel.open", args: { panelId: "physics" }, at: 1.4 },
+      ],
+      advance: { mode: "assertion", assertion: { type: "physics.state", minSystems: 1, playing: true } },
+      hint: "Press Play in the Physics panel if nothing is moving. Reset returns everything to its authored pose.",
+    },
+    {
+      id: "sound",
+      title: "4. The mobile is the instrument",
+      narration: "Open Synth and enable audio — browsers need a deliberate gesture.\n\nTwo mappings are already authored. **Hand strikes mobile** listens for a hand tagged `wayang-hand` meeting a shape tagged `mobile-chime`. **Mobile shapes meet** listens for the shapes meeting each other, an octave up and quieter, so one strike sets off a small cascade.",
+      info: "Pitch comes from where the contact lands: the note expression reads contact height and impact strength through a five-tone scale inspired by slendro. It is an approximation for a teaching patch, not a tuned gamelan — real slendro is close to equidistant and varies by ensemble.",
+      focusTarget: "panel.physics",
+      cues: [
+        { type: "command", commandId: "panel.open", args: { panelId: "synth" }, at: 0 },
+        { type: "command", commandId: "panel.open", args: { panelId: "physics" }, at: 0.8 },
+      ],
+      advance: { mode: "continue" },
+      hint: "Open the Mappings section in Physics and read the two cards. Change a root note or the program and the instrument changes.",
+    },
+    {
+      id: "mouse",
+      title: "5. Play it with the mouse",
+      narration: "With the world running, **drag the puppet's right hand into the red chime**. Dragging a running body makes a temporary grab spring, so the arm still obeys its shoulder and elbow — you are moving a rod, not teleporting a shape.\n\nOnly the near chime is inside the arm's reach. The others ring because the mobile swings into itself.",
+      info: "The grab is temporary and never changes the authored pose. Use Apply current pose if you want a position to become the new reset state, or Reset to return to the authored one.",
+      focusTarget: "canvas",
+      advance: { mode: "continue" },
+      hint: "Start the drag on the hand itself, not on a selection. Short, quick swings ring the chime harder than slow pushes, because the mapping reads relative speed.",
+    },
+    {
+      id: "controller",
+      title: "6. Give it rods",
+      narration: "A mouse has one pointer, and a puppeteer has two rods. This p5 node is the control surface: its whole area maps onto the puppet's reach.\n\nWithout a camera it drives the near hand from the mouse. With MediaPipe Holistic running it drives **both** hands from your wrists.",
+      info: "The node never sets a position. Each frame it reads where a hand is, computes a target, and applies an impulse through __.api.physics.impulse, so the arms stay under the solver and keep their joints. Its strength parameter scales that pull.",
+      focusTarget: "editor.livecode",
+      cues: [
+        { type: "command", commandId: "livecode.node.create", args: { kind: "p5", example: "wayang-rod-controller", name: "Wayang rods", running: true, transportMode: "free", view: "preview" }, at: 0.4 },
+      ],
+      advance: { mode: "assertion", assertion: { type: "scene.exists", kind: "p5", name: "Wayang rods" } },
+      hint: "Move the pointer across the node's surface and the near hand follows. If it reports no rig, the puppet was removed — run /physics demo wayang again.",
+    },
+    {
+      id: "mediapipe",
+      title: "7. Both hands, from the camera",
+      narration: "Open Media and add a **Holistic** source. Once it has a completed frame the controller switches to your wrists and reports *MediaPipe wrists · both rods*.\n\nNow you are the puppeteer: both arms follow, and the mobile answers.",
+      info: "Landmark observations are runtime-only and never copied into the scene. The node's mirror parameter flips the camera's left and right so the puppet moves the way you do; turn it off if you want the raw camera framing.",
+      focusTarget: "panel.media-input",
+      cues: [
+        { type: "command", commandId: "panel.open", args: { panelId: "media-input" }, at: 0.3 },
+      ],
+      advance: { mode: "continue" },
+      hint: "No camera to hand? The node stays useful on the mouse, and everything after this step works either way.",
+    },
+    {
+      id: "finish",
+      title: "8. Perform it, or take it apart",
+      narration: "You have an instrument. Record a take with History, sequence entrances with Playlist, or hide the chrome with presentation mode and play it for a room.\n\nOr take it apart: change a chime's material and it rings differently, move a wire and the mobile rebalances, add a third arm segment and the reach changes.\n\nPress Done to keep this patch or restore the one you started with.",
+      info: "Everything here is authored state in one .__.json patch, so the whole instrument travels as a file. Documentation covers bodies, constraints, actuators, mappings, and mapping formulas in depth.",
+      focusTarget: "panel.walkthrough",
+      advance: { mode: "continue" },
+    },
+  ],
+});
+
 // A case study rather than a one-shot demo: each stage leaves the patch in a
 // useful, inspectable state so a teacher can stop, explain, or let a learner
 // take over before continuing. The first command uses the same Marionette
@@ -651,6 +763,7 @@ export const BUNDLED_WALKTHROUGHS = Object.freeze([
   LIVECODE_WALKTHROUGH,
   PHYSICS_WALKTHROUGH,
   TIMELINE_WALKTHROUGH,
+  WAYANG_WALKTHROUGH,
   MARIONETTE_WALKTHROUGH,
 ]);
 
@@ -664,6 +777,7 @@ export const BUNDLED_HELP_CATALOG = Object.freeze([
   { id: "livecode-parameters", title: "Livecode parameters", category: "Livecode", tags: ["param", "parameters", "controls", "color", "number"], summary: "Turn hard-coded values into @param controls read through __.params.", walkthroughId: LIVECODE_WALKTHROUGH.id, stepId: "parameters", insertCommand: { id: "livecode.node.create", args: { kind: "p5", name: "Help parameter sketch", source: LIVECODE_PARAM_SOURCE, running: true, transportMode: "free" } } },
   { id: "audio-physics", title: "Audio and physics", category: "Systems", tags: ["sound", "physics", "mapping"], summary: "Connect movement and collisions to the internal synth.", walkthroughId: ONBOARDING_WALKTHROUGH.id, stepId: "audio", insertCommand: { id: "demo.reich.pendulum.create", args: { count: 2, preset: "bowed", running: false, audio: false } } },
   { id: "physics-musical-gas", title: "Musical gas", category: "Systems", tags: ["physics", "population", "collision", "performance", "mapping"], summary: "A 250-particle seeded population whose body and wall hits drive distinct sounds.", walkthroughId: PHYSICS_WALKTHROUGH.id, stepId: "build-gas", insertCommand: { id: "physics.example.gas", args: {} } },
+  { id: "wayang-mobile", title: "Wayang puppet and a Miro mobile", category: "Systems", tags: ["physics", "wayang", "puppet", "mobile", "calder", "miro", "gamelan", "mediapipe", "mouse", "instrument"], summary: "An articulated rod puppet that plays a hanging mobile, driven by the mouse or by MediaPipe wrists.", walkthroughId: WAYANG_WALKTHROUGH.id, stepId: "build", insertCommand: { id: "physics.example.wayang", args: {} } },
   { id: "physics-marionette", title: "Physics marionette case study", category: "Systems", tags: ["physics", "marionette", "rigging", "mediapipe", "history", "performance"], summary: "Build a Bauhaus paper doll, rig it, make it musical, drive a second rig from MediaPipe, and record a take.", walkthroughId: MARIONETTE_WALKTHROUGH.id, stepId: "construct-costume", insertCommand: { id: "physics.example.marionette", args: {} } },
   { id: "timeline-clips", title: "Arrangement clips", category: "Score", tags: ["timeline", "clip", "take", "record", "lane", "loop"], summary: "Schedule when an object participates in the score, and record performance into clips.", walkthroughId: TIMELINE_WALKTHROUGH.id, stepId: "clip" },
 ]);

@@ -13,6 +13,8 @@ import {
   PHYSICS_WALKTHROUGH_ID,
   TIMELINE_WALKTHROUGH,
   TIMELINE_WALKTHROUGH_ID,
+  WAYANG_WALKTHROUGH,
+  WAYANG_WALKTHROUGH_ID,
 } from "./walkthroughCatalog.js";
 import { WALKTHROUGH_ASSERTION_TYPES } from "./walkthroughSystem.js";
 import { isRegisteredWalkthroughTarget } from "./walkthroughTargets.js";
@@ -25,6 +27,7 @@ test("the bundled library covers onboarding and the three priority areas", () =>
     LIVECODE_WALKTHROUGH_ID,
     PHYSICS_WALKTHROUGH_ID,
     TIMELINE_WALKTHROUGH_ID,
+    WAYANG_WALKTHROUGH_ID,
     MARIONETTE_WALKTHROUGH_ID,
   ]);
   // Onboarding is the default selection and the /welcome target, so it stays first.
@@ -211,4 +214,33 @@ test("each priority area has a Getting started entry a learner can start", () =>
     PHYSICS_WALKTHROUGH_ID,
     TIMELINE_WALKTHROUGH_ID,
   ]);
+});
+
+test("the wayang lesson builds the rig, sounds it, then hands over both rods", () => {
+  assert.deepEqual(WAYANG_WALKTHROUGH.steps.map(step => step.id), [
+    "build",
+    "read-rig",
+    "play",
+    "sound",
+    "mouse",
+    "controller",
+    "mediapipe",
+    "finish",
+  ]);
+  const build = WAYANG_WALKTHROUGH.steps[0];
+  assert.ok(build.cues.some(cue => cue.commandId === "physics.example.wayang"));
+  assert.equal(build.advance.assertion.type, "physics.state");
+  const play = WAYANG_WALKTHROUGH.steps.find(step => step.id === "play");
+  assert.equal(play.advance.assertion.playing, true);
+  // The mouse step is deliberately a learner action: one pointer is one rod.
+  const mouse = WAYANG_WALKTHROUGH.steps.find(step => step.id === "mouse");
+  assert.equal(mouse.cues.length, 0);
+  const controller = WAYANG_WALKTHROUGH.steps.find(step => step.id === "controller");
+  assert.equal(controller.cues[0].args.example, "wayang-rod-controller");
+  assert.deepEqual(controller.advance.assertion, { type: "scene.exists", kind: "p5", name: "Wayang rods" });
+  const mediapipe = WAYANG_WALKTHROUGH.steps.find(step => step.id === "mediapipe");
+  assert.ok(mediapipe.cues.some(cue => cue.args?.panelId === "media-input"));
+  // Both control paths have to be reachable, and neither may be a hard gate.
+  assert.match(mouse.narration, /drag/i);
+  assert.match(mediapipe.hint, /mouse/i);
 });

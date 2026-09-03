@@ -14590,6 +14590,8 @@ function App() {
       ? [Number(options.width) || 720, Number(options.height) || 460]
       : kind === "marionette"
         ? [Number(options.width) || 260, Number(options.height) || 320]
+        : ["wayang", "wayang-mobile", "mobile"].includes(kind)
+          ? [Number(options.width) || 640, Number(options.height) || 320]
         : kind === "reich-pendulum"
           ? [Number(options.width) || 820, Number(options.height) || 540]
           : [Number(options.width) || 280, Number(options.height) || 320];
@@ -15173,6 +15175,7 @@ function App() {
     { id: "physics.apply", name: "Physics: Apply Current Pose", aliases: ["/physics apply", "/physics bake"], category: "Physics", action: (_api, args) => applyPhysicsPose(args?.systemId || activePhysicsSystemId) },
     { id: "physics.materialize", name: "Physics: Materialize Population", aliases: ["/physics materialize"], category: "Physics", action: (_api, args) => materializePhysicsPopulation(args) },
     { id: "physics.example.gas", name: "Physics Example: Musical Gas", aliases: ["/physics demo gas"], category: "Physics", action: () => loadPhysicsExample("gas") },
+    { id: "physics.example.wayang", name: "Physics Example: Wayang and Mobile", aliases: ["/physics demo wayang", "/wayang", "Wayang mobile"], category: "Physics", ai: { expose: true, description: "Create a wayang-style rod puppet with two-segment articulated arms facing a Calder mobile hung with Miro-flavoured shapes. Hand-to-chime and chime-to-chime contacts are mapped to a slendro-inspired Expressive Synth voice. Drive the arms with the mouse in Live pose, or with the wayang-rod-controller p5 example reading MediaPipe wrists." }, action: () => loadPhysicsExample("wayang") },
     { id: "physics.example.marionette", name: "Physics Example: Marionette", aliases: ["/physics demo marionette"], category: "Physics", action: () => loadPhysicsExample("marionette") },
     { id: "physics.example.portrait", name: "Physics Example: Stream Portrait", aliases: ["/physics demo portrait"], category: "Physics", action: () => loadPhysicsExample("portrait") },
     { id: "demo.catalog", name: "AI: List Ready-made Demos", category: "AI Actions", ai: { expose: true, description: "List high-level composition and physics demos that are safe to stage through WebMCP or the embedded assistant.", example: {} }, action: () => ({

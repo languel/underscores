@@ -101,12 +101,15 @@ await __.physics.play(system.id);
 const stop = __.relations.events.subscribe(events => console.log(events));
 ```
 
+`__.physics.impulse(systemId, bodyId, vector)` accepts either `[x, y]` or `{ x, y }`. The solver reads `[x, y]`; an `{ x, y }` object used to arrive as undefined indices and apply nothing at all, which is invisible from a script, so the public API normalizes both spellings.
+
 `__.relations` provides graph CRUD, endpoint normalization, adapter registration/listing, collision streams, event subscription, and canonical mapping collections. `__.physics` provides system helpers, lists for bodies/populations/constraints/mappings, a legacy routes compatibility view, play/pause/reset/apply, impulses, grabbing, materialization, live poses, telemetry, and deterministic snapshots. Trusted script hosts also keep `__.api.relations` and `__.api.physics` as self-reference aliases.
 
 ## Built-in classroom examples
 
 - **Musical gas** draws curve and box walls, creates a seeded 250-particle runtime population, and routes body/body and body/wall hits to distinct sounds. See [Musical gas](examples/physics-musical-gas.md).
 - **Marionette** creates persistent selectable rigid parts joined by a pin, spring, and revolute joints. See [Marionette](examples/physics-marionette.md).
+- **Wayang and mobile** builds an articulated wayang-style rod puppet facing a Calder mobile of Miro-flavoured shapes, and maps the puppet's strikes to a slendro-inspired Expressive Synth voice. `/physics demo wayang`. Three details are load-bearing. Each arm has two segments (shoulder and elbow hinges) because one segment can only sweep an arc while two can place a hand on a point, and the arms are authored already hanging so the rest pose stays clear of the mobile. Every mobile wire is a real body hinged at both ends: a bar hung from a single link is free to rotate about that one point and the assembly flails instead of swinging. The top bar's world hook is derived from the centre of mass of everything it carries rather than hand-tuned. Collision filtering uses raw `collisionGroup`/`collisionMask` bits, not the named layer stack, because `loadPhysicsExample` merges only `systems`, `bodies`, `populations`, `constraints`, `mappings`, and `routes` — a `world` written by an example is dropped, so named layers would not survive. Every part carries linear and angular damping so the rig settles. The **MediaPipe · Wayang rod controller** p5 example drives the near hand from the mouse and both hands from Holistic wrists, applying impulses rather than setting positions so the arms stay under the solver.
 - **Stream portrait** connects a stable curve anchor to a recorded deterministic face fixture; replace its stream endpoint with any MediaPipe semantic stream to drive the same curve. It also demonstrates shared sculpt operators. See [Stream portrait and sculpt](examples/physics-stream-portrait.md).
 
 Reanimata informed the vocabulary—named joints, reset poses, rest length, stiffness, damping, and pins—but no GPL source is included.

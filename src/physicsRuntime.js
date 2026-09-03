@@ -9,6 +9,7 @@ import {
   normalizeRelationshipGraph,
   removeRelationshipItem,
   updateRelationshipItem,
+  normalizePhysicsVector,
 } from "./relationshipGraph.js";
 import { PhysicsMappingRuntime } from "./mappingRuntime.js";
 import { createPhysicsWorker } from "@underscores/physics-worker-factory";
@@ -543,7 +544,10 @@ export const createPhysicsApi = ({ runtime, getGraph, setGraph, applyPose, reset
   reset: systemId => reset?.(systemId) ?? runtime.reset(systemId),
   apply: systemId => applyPose?.(systemId),
   materialize: options => materialize?.(options),
-  impulse: (systemId, entityId, impulse) => runtime.impulse(systemId, entityId, impulse),
+  // The solver reads vectors as [x, y]. The rest of the public API speaks
+  // {x, y}, and passing that here used to be a silent no-op rather than an
+  // error, so accept both spellings at the boundary.
+  impulse: (systemId, entityId, impulse) => runtime.impulse(systemId, entityId, normalizePhysicsVector(impulse)),
   grab: (systemId, entityId, point, options) => runtime.grab(systemId, entityId, point, options),
   grabConstraint: (systemId, constraintId, point, options) => runtime.grabConstraint(systemId, constraintId, point, options),
   moveGrab: (systemId, point, options) => runtime.moveGrab(systemId, point, options),

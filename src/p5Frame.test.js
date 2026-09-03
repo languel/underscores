@@ -129,7 +129,7 @@ test("validates p5 source syntax without running a sketch", () => {
 });
 
 test("ships editable starter examples for both p5 styles and the Underscores bridge", () => {
-  assert.equal(P5_EXAMPLES.length, 10);
+  assert.equal(P5_EXAMPLES.length, 11);
   assert.equal(new Set(P5_EXAMPLES.map(example => example.id)).size, P5_EXAMPLES.length);
   assert.equal(getP5Example("bare-instance")?.mode, "instance");
   assert.equal(getP5Example("bare-global")?.mode, "global");
