@@ -45,6 +45,46 @@
   animation: walkthrough-pulse 1.5s ease-out infinite;
 }
 
+/* A deliberate playback cursor for recorded History and walkthrough input.
+   It lives in a fixed portal so UI events remain visible over side and bottom
+   docks, while the laser token keeps it in the active board palette. */
+.underscores-session-virtual-cursor {
+  position: fixed;
+  z-index: 10018;
+  width: 30px;
+  height: 38px;
+  overflow: visible;
+  pointer-events: none;
+  transform: translate(-2px, -2px);
+  transition: left 55ms linear, top 55ms linear;
+  will-change: left, top;
+  color: var(--underscores-virtual-cursor-color, var(--underscores-laser-color, var(--underscores-accent, #67d7e6)));
+  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 78%, transparent));
+  animation: underscores-virtual-cursor-in 140ms ease-out both;
+}
+.underscores-session-virtual-cursor-halo {
+  fill: color-mix(in srgb, currentColor 25%, transparent);
+  stroke: currentColor;
+  stroke-width: 1;
+  opacity: .7;
+  animation: underscores-virtual-cursor-pulse 1.4s ease-out infinite;
+}
+.underscores-session-virtual-cursor-arrow {
+  fill: currentColor;
+  stroke: color-mix(in srgb, currentColor 80%, white 20%);
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+}
+@keyframes underscores-virtual-cursor-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes underscores-virtual-cursor-pulse {
+  0% { opacity: .75; transform: scale(.7); transform-origin: 8px 8px; }
+  100% { opacity: 0; transform: scale(1.9); transform-origin: 8px 8px; }
+}
+
 @keyframes walkthrough-pulse {
   0% { opacity: .9; transform: translate(-50%, -50%) scale(.55); }
   100% { opacity: 0; transform: translate(-50%, -50%) scale(1.25); }
@@ -100,6 +140,64 @@
 .walkthrough-narration .is-warning { color: #e6a74f; }
 .walkthrough-narration .is-success { color: #76c893; }
 .walkthrough-hint { padding-left: 9px; border-left: 2px solid var(--underscores-accent, #7aa2ff); }
+
+/* Themed feedback dialogs keep confirmations and short input requests inside
+   the same visual language as the guided walkthrough. */
+.feedback-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10030;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24px 16px max(24px, env(safe-area-inset-bottom));
+  color: var(--underscores-foreground, var(--text-primary-color, #e7eaed));
+  color-scheme: inherit;
+  font-family: var(--font-sans, sans-serif);
+}
+.feedback-dialog-backdrop { position: absolute; inset: 0; background: color-mix(in srgb, var(--underscores-panel-bg, #111) 22%, transparent); }
+.feedback-dialog {
+  position: relative;
+  width: min(560px, calc(100vw - 32px));
+  padding: 14px 16px 12px;
+  border: 1px solid color-mix(in srgb, var(--underscores-foreground, #ddd) 18%, transparent);
+  border-radius: 10px;
+  color: var(--underscores-foreground, var(--text-primary-color, #e7eaed));
+  background: color-mix(in srgb, var(--underscores-panel-bg, #171717) 94%, transparent);
+  box-shadow: 0 16px 44px rgba(0,0,0,.34), 0 0 24px color-mix(in srgb, var(--underscores-accent, #7aa2ff) 12%, transparent);
+  backdrop-filter: blur(16px);
+}
+.feedback-dialog header,
+.feedback-dialog footer { display: flex; align-items: center; gap: 7px; }
+.feedback-dialog header { justify-content: space-between; color: var(--underscores-muted, #999); font-size: 11px; }
+.feedback-dialog h2 { margin: 8px 0 4px; font-size: 16px; font-weight: 600; }
+.feedback-dialog p { margin: 4px 0 12px; line-height: 1.45; white-space: pre-wrap; }
+.feedback-dialog footer { justify-content: flex-end; }
+.feedback-dialog button,
+.feedback-dialog input { font: inherit; color: inherit; }
+.feedback-dialog button {
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 1px solid var(--border-color, color-mix(in srgb, var(--underscores-foreground, #e7eaed) 20%, transparent));
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-primary, var(--underscores-foreground, #e7eaed));
+}
+.feedback-dialog button:hover,
+.feedback-dialog button:focus-visible { background: var(--bg-hover-btn, color-mix(in srgb, currentColor 12%, transparent)); }
+.feedback-dialog button.primary { font-weight: 700; border-color: var(--border-focus, var(--underscores-accent, #67d7e6)); }
+.feedback-dialog-input {
+  display: block;
+  width: 100%;
+  min-height: 31px;
+  margin: 4px 0 12px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-radius: 5px;
+  outline: none;
+  background: var(--underscores-input-bg, transparent);
+}
+.feedback-dialog-input:focus { border-color: var(--border-focus, var(--underscores-accent, #67d7e6)); }
 
 .walkthrough-panel { display: flex; flex-direction: column; min-height: 0; height: 100%; font-size: var(--underscores-ui-font-size, 12px); }
 .walkthrough-panel-toolbar,

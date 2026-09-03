@@ -36,6 +36,7 @@ import TransportTimeline from "./TransportTimeline.jsx";
 import HistoryPanel from "./HistoryPanel.jsx";
 import WalkthroughPanel from "./WalkthroughPanel.jsx";
 import WalkthroughOverlay from "./WalkthroughOverlay.jsx";
+import FeedbackDialog, { useFeedbackDialog } from "./FeedbackDialog.jsx";
 import EventConsole from "./EventConsole.jsx";
 import { buildConsoleLiveStatus, changedConsoleStatusRows } from "./consoleStatus.js";
 import PropertiesPanel from "./PropertiesPanel.jsx";
@@ -3228,6 +3229,7 @@ function App() {
     walkthroughCaptureBaseline: () => null,
     walkthroughRestoreBaseline: async () => {},
     walkthroughPerformUi: async () => {},
+    walkthroughPerformInput: async () => {},
     walkthroughEvaluate: async () => ({ passed: true }),
   });
   const underscoresRuntimeRef = useRef(null);
@@ -3248,6 +3250,13 @@ function App() {
     };
   }
   const { eventBus, inputBus, commandRegistry, historyController, library: historyLibrary } = underscoresRuntimeRef.current;
+  const {
+    dialog: feedbackDialog,
+    requestAlert,
+    requestConfirm,
+    requestPrompt,
+    resolveFeedbackDialog,
+  } = useFeedbackDialog();
   const collaborationCallbacksRef = useRef({});
   const collaborationControllerRef = useRef(null);
   if (!collaborationControllerRef.current) {
@@ -3283,6 +3292,13 @@ function App() {
   const [historySnapshot, setHistorySnapshot] = useState(() => historyController.snapshot());
   const [historyMacros, setHistoryMacros] = useState([]);
   const [historyIncludePresentation, setHistoryIncludePresentation] = useState(true);
+  const legacyHistoryInputCapture = localStorage.getItem("underscores_history_include_input") === "true";
+  const readHistoryInputScope = key => {
+    const scoped = localStorage.getItem(key);
+    return scoped === null ? legacyHistoryInputCapture : scoped === "true";
+  };
+  const [historyIncludeCanvasInput, setHistoryIncludeCanvasInput] = useState(() => readHistoryInputScope("underscores_history_include_canvas_input"));
+  const [historyIncludeUiInput, setHistoryIncludeUiInput] = useState(() => readHistoryInputScope("underscores_history_include_ui_input"));
   const [historyMidiArmed, setHistoryMidiArmed] = useState(() => localStorage.getItem("underscores_history_midi_armed") === "true");
   const [historyShowPointer, setHistoryShowPointer] = useState(true);
   const [historyClockMode, setHistoryClockMode] = useState(() => localStorage.getItem("underscores_history_clock_mode") || "realtime");
@@ -3290,6 +3306,12 @@ function App() {
   const [historyLoopOverdub, setHistoryLoopOverdub] = useState(() => localStorage.getItem("underscores_history_loop_overdub") === "true");
   const [autoKeyEnabled, setAutoKeyEnabled] = useState(false);
   const [sessionPlaybackOverlay, setSessionPlaybackOverlay] = useState([]);
+  const [sessionInputPlaybackOverlay, setSessionInputPlaybackOverlay] = useState([]);
+  // Sequence insertion uses delayed action dispatch so relative timings are
+  // preserved. Keep the timer handles together with the session controls so a
+  // Clear action can cancel the tail of an inserted sequence as well as the
+  // History transport itself.
+  const historyMacroTimersRef = useRef(new Set());
   const [theme, setTheme] = useState(() => localStorage.getItem("underscores_theme") || "dark");
   const [interfaceFont, setInterfaceFont] = useState(() => getInterfaceFont(localStorage.getItem("underscores_interface_font")).id);
   const [interfaceFontSize, setInterfaceFontSize] = useState(() => {
@@ -3440,13 +3462,17 @@ function App() {
   const walkthroughRunnerRef = useRef(null);
   if (!walkthroughRunnerRef.current) {
     walkthroughRunnerRef.current = new WalkthroughRunner({
-      executeCommand: (id, args, options) => {
-        if (requiresWalkthroughLearnerGate(id) && !window.confirm(`The walkthrough wants to run “${commandRegistry.describe(id)?.title || id}”. Continue?`)) {
+      executeCommand: async (id, args, options) => {
+        if (requiresWalkthroughLearnerGate(id) && !await requestConfirm(`The walkthrough wants to run “${commandRegistry.describe(id)?.title || id}”. Continue?`, {
+          title: "Walkthrough action",
+          confirmLabel: "Allow",
+        })) {
           throw new Error("The learner did not allow this protected walkthrough action.");
         }
         return commandRegistry.execute(id, args, options);
       },
       performUiAction: cue => runtimeCallbacksRef.current.walkthroughPerformUi(cue),
+      performInput: cue => runtimeCallbacksRef.current.walkthroughPerformInput(cue),
       evaluateAssertion: assertion => runtimeCallbacksRef.current.walkthroughEvaluate(assertion),
       captureBaseline: () => runtimeCallbacksRef.current.walkthroughCaptureBaseline(),
       restoreBaseline: baseline => runtimeCallbacksRef.current.walkthroughRestoreBaseline(baseline),
@@ -5033,8 +5059,8 @@ function App() {
   const [expressiveVoiceCount, setExpressiveVoiceCount] = useState(0);
   const [midiStatus, setMidiStatus] = useState(() =>
     typeof navigator !== "undefined" && navigator.requestMIDIAccess
-      ? "MIDI not connected"
-      : "Web MIDI is unavailable in this browser"
+      ? "Internal MIDI enabled · external MIDI optional"
+      : "Internal MIDI enabled · Web MIDI unavailable in this browser"
   );
   const [sceneExchangeStatus, setSceneExchangeStatus] = useState("");
   const [, setScoreRuntimeNonce] = useState(0);
@@ -5066,6 +5092,7 @@ function App() {
   const internalSynthRestoreRef = useRef(localStorage.getItem(INTERNAL_SYNTH_RESTORE_STORAGE_KEY) === "true");
   const internalSynthDiagnosticTimesRef = useRef(new Map());
   const internalSynthRestoreAttemptedRef = useRef(false);
+  const audioGestureUnlockAttemptedRef = useRef(false);
   const expressiveSynthConfigRef = useRef(expressiveSynthConfig);
   const expressiveSynthRef = useRef(null);
   const midiInputIdRef = useRef(midiInputId);
@@ -5738,6 +5765,32 @@ function App() {
     };
   }, [ensureExpressiveSynth]);
 
+  useEffect(() => {
+    // Keep the default internal Mixer audible without putting a browser
+    // permission/alert in front of the first interaction. Web Audio can only
+    // leave its suspended state from a real gesture, so retry once on the
+    // first pointer or key event when an internal route is enabled.
+    const unlockFromGesture = () => {
+      if (audioGestureUnlockAttemptedRef.current) return;
+      const activeTracks = mixerRef.current.tracks.filter(track => track.enabled && !track.muted);
+      const hasInternalAudio = activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL);
+      if (!hasInternalAudio) return;
+      audioGestureUnlockAttemptedRef.current = true;
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_GM)) {
+        void ensureInternalSynth({ reason: "user-gesture" });
+      }
+      if (activeTracks.some(track => track.destination === MIXER_DESTINATION_INTERNAL && track.instrument === MIXER_INSTRUMENT_EXPRESSIVE)) {
+        void ensureExpressiveSynth();
+      }
+    };
+    window.addEventListener("pointerdown", unlockFromGesture, true);
+    window.addEventListener("keydown", unlockFromGesture, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlockFromGesture, true);
+      window.removeEventListener("keydown", unlockFromGesture, true);
+    };
+  }, [ensureExpressiveSynth, ensureInternalSynth]);
+
   const resetExpressiveSynth = useCallback(async () => {
     panicMidi();
     const previous = expressiveSynthRef.current;
@@ -5998,7 +6051,7 @@ function App() {
       duration: snapshot.duration,
       actions: snapshot.session?.actions?.length || 0,
     }, { source: "history", time: performance.now() });
-    if (eventName === "playback.tick" || eventName === "playback.seek" || eventName === "playback.start") {
+    if (eventName === "playback.tick" || eventName === "playback.seek" || eventName === "playback.start" || eventName === "action.played") {
       const active = (snapshot.session?.actions || []).filter(action =>
         action.enabled && action.kind === "stroke" && snapshot.playhead >= action.at && snapshot.playhead < action.at + action.duration
       ).map(action => {
@@ -6048,8 +6101,41 @@ function App() {
         };
       });
       setSessionPlaybackOverlay(active);
+      const inputActions = (snapshot.session?.actions || []).filter(action => action.enabled && action.kind === "input" && action.at <= snapshot.playhead);
+      const activeInputs = inputActions.filter(action => action.duration > 0
+        ? snapshot.playhead <= action.at + action.duration
+        : true);
+      const activeGestureIds = new Set(activeInputs.filter(action => action.duration > 0).map(action => action.id));
+      const latestHover = [...inputActions].reverse().find(action => action.duration <= 0);
+      const inputOverlay = activeInputs
+        .filter(action => action.duration > 0 || action.id === latestHover?.id)
+        .map(action => {
+          const samples = action.args?.samples || [];
+          const progress = action.duration > 0
+            ? Math.min(1, Math.max(0, (snapshot.playhead - action.at) / action.duration))
+            : 1;
+          const recordedDurationMs = Math.max(0, Number(samples.at(-1)?.time) || 0);
+          const recordedPlayheadMs = recordedDurationMs * progress;
+          const firstFutureSample = action.duration > 0 && recordedDurationMs > 0
+            ? samples.findIndex(sample => Number(sample.time) > recordedPlayheadMs)
+            : -1;
+          const count = Math.max(1, firstFutureSample < 0 ? samples.length : firstFutureSample);
+          const visibleSamples = samples.slice(0, count);
+          return {
+            id: action.id,
+            eventType: action.args?.eventType || "pointer",
+            scope: action.args?.scope === "ui" ? "ui" : "canvas",
+            samples: visibleSamples,
+            pointer: visibleSamples.at(-1) || samples.at(-1) || null,
+            color: action.args?.color || null,
+            opacity: Number.isFinite(Number(action.args?.opacity)) ? Number(action.args.opacity) / 100 : 0.9,
+            active: activeGestureIds.has(action.id),
+          };
+        });
+      setSessionInputPlaybackOverlay(inputOverlay);
     } else if (eventName === "playback.complete" || eventName === "playback.stop") {
       setSessionPlaybackOverlay([]);
+      setSessionInputPlaybackOverlay([]);
     }
   }), [eventBus, historyController, panicMidi]);
 
@@ -7200,12 +7286,15 @@ function App() {
       : `Saved “${newBrush.name}” to the brush palette.`);
   };
 
-  const deleteBrush = () => {
+  const deleteBrush = async () => {
     if (activeBrushId === "normal") return;
     const brush = brushPalette.find(b => b.id === activeBrushId);
     if (!brush || brush.isPreset) return;
     
-    if (window.confirm(`Are you sure you want to delete "${brush.name}"?`)) {
+    if (await requestConfirm(`Are you sure you want to delete "${brush.name}"?`, {
+      title: "Delete brush",
+      confirmLabel: "Delete",
+    })) {
       setBrushPalette(prev => prev.filter(b => b.id !== activeBrushId));
       setActiveBrushId("hairy");
     }
@@ -9365,7 +9454,7 @@ function App() {
     };
   };
 
-  const handleApplyBrushToSelected = () => {
+  const handleApplyBrushToSelected = async () => {
     if (!excalidrawAPI) return;
     const appState = excalidrawAPI.getAppState();
     const selectedIds = appState.selectedElementIds || {};
@@ -9376,12 +9465,12 @@ function App() {
     );
 
     if (selectedStrokeElements.length === 0) {
-      alert("Please select one or more freehand pencil strokes or lines on the canvas first!");
+      await requestAlert("Please select one or more freehand pencil strokes or lines on the canvas first!", { title: "Apply brush" });
       return;
     }
 
     if (globalModifiers.length === 0) {
-      alert("The active modifier stack is empty! Add some modifiers to the stack first.");
+      await requestAlert("The active modifier stack is empty! Add some modifiers to the stack first.", { title: "Apply brush" });
       return;
     }
 
@@ -9496,7 +9585,7 @@ function App() {
     }
   };
 
-  const handleRestoreOriginalStroke = () => {
+  const handleRestoreOriginalStroke = async () => {
     if (!excalidrawAPI) return;
     const appState = excalidrawAPI.getAppState();
     const selectedIds = appState.selectedElementIds || {};
@@ -9529,7 +9618,7 @@ function App() {
     }
 
     if (baseIdsToRestore.size === 0) {
-      alert("Selected elements do not appear to be generated by a custom brush.");
+      await requestAlert("Selected elements do not appear to be generated by a custom brush.", { title: "Restore original stroke" });
       return;
     }
 
@@ -9569,7 +9658,7 @@ function App() {
         }
       });
     } else {
-      alert("Could not locate the original pencil strokes in the scene history.");
+      await requestAlert("Could not locate the original pencil strokes in the scene history.", { title: "Restore original stroke" });
     }
   };
 
@@ -10321,11 +10410,17 @@ function App() {
     return result;
   }, [selectedArrangementClipId, updateElementArrangement]);
 
-  const selectArrangementClip = useCallback((elementId, clipId) => {
-    setSelectedArrangementClipId(clipId);
+  const selectArrangementClip = useCallback((elementId, clipId, selection = {}) => {
+    const elementIds = Array.isArray(selection.elementIds)
+      ? selection.elementIds.filter(Boolean)
+      : elementId ? [elementId] : [];
+    setSelectedArrangementClipId(clipId || "");
     const api = excalidrawAPIRef.current;
     if (!api) return;
-    api.updateScene({ appState: { selectedElementIds: { [elementId]: true } }, commitToHistory: false });
+    api.updateScene({
+      appState: { selectedElementIds: Object.fromEntries(elementIds.map(id => [id, true])) },
+      commitToHistory: false,
+    });
   }, []);
 
   const selectPlaylistIndex = useCallback((index, { frame = false } = {}) => {
@@ -13765,22 +13860,34 @@ function App() {
     return population;
   };
 
-  const createPhysicsMapping = ({ systemId = activePhysicsSystemId, collisionClass = "body-wall" } = {}) => {
+  const createPhysicsMapping = ({ systemId = activePhysicsSystemId, collisionClass = "body-wall", target = "midi-note" } = {}) => {
+    const targetSystemId = systemId || activePhysicsSystemId || relationshipGraphRef.current.systems[0]?.id || null;
+    const expressive = target === "expressive-voice" || target === "synth";
     const mapping = {
       id: `mapping-${crypto.randomUUID()}`,
-      name: collisionClass === "body-body" ? "Body collision → MIDI" : "Wall collision → MIDI",
+      name: expressive
+        ? (collisionClass === "body-body" ? "Body collision → voice" : "Wall collision → voice")
+        : (collisionClass === "body-body" ? "Body collision → MIDI" : "Wall collision → MIDI"),
       source: {
-        kind: "physics-collision", systemId, phases: ["hit"], classes: [collisionClass],
+        kind: "physics-collision", systemId: targetSystemId, phases: ["hit"], classes: [collisionClass],
         field: "impulse", range: { min: 0, max: 10 },
       },
       filter: { min: 0.2 },
       transform: { outputMin: 12, outputMax: 127, scale: 1, offset: 0, clamp: true },
-      target: { kind: "midi-note", mode: "hit", channel: 1, note: 60, noteExpression: "baseNote", velocityExpression: "value", duration: 0.16 },
+      target: expressive
+        ? {
+            kind: "expressive-voice", mode: "hit", program: "bowed", noteExpression: "baseNote",
+            gainExpression: "clamp(value / 127, 0.08, 0.8)", pressureExpression: "clamp(norm, 0.12, 1)",
+            brightnessExpression: "clamp(norm, 0.12, 1)", panExpression: "clamp((x / 500) - 1, -1, 1)", duration: 0.2,
+          }
+        : { kind: "midi-note", mode: "hit", channel: 1, note: 60, noteExpression: "baseNote", velocityExpression: "value", duration: 0.16 },
       cooldownMs: collisionClass === "body-body" ? 70 : 35,
       perPair: true,
     };
-    setRelationshipGraph(previous => addRelationshipItem(previous, "mappings", mapping));
-    return mapping;
+    const next = addRelationshipItem(relationshipGraphRef.current, "mappings", mapping);
+    relationshipGraphRef.current = next;
+    setRelationshipGraph(next);
+    return next.mappings.find(item => item.id === mapping.id) || mapping;
   };
 
   const startPhysicsTool = (kind, systemId = activePhysicsSystemId) => {
@@ -14974,6 +15081,7 @@ function App() {
     { id: "physics.attractor.make", name: "Make Attractor Object /make attractor", aliases: ["/make attractor", "/physics attractor"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected canvas objects into radial physics attractors. They can attract or repel dynamic bodies within a configurable radius." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "attractor" }) },
     { id: "physics.thruster.make", name: "Make Thruster Object /make thruster", aliases: ["/make thruster", "/physics thruster"], category: "Physics", args: { systemId: "string?" }, ai: { expose: true, description: "Turn selected lines, arrows, paths, or freehand strokes into thrusters. Their start attaches to a dynamic body and their visible direction applies continuous force." }, action: (_api, args = {}) => assignPhysicsConstraintPivots({ ...args, kind: "thruster" }) },
     { id: "physics.population.create", name: "Physics: Create Runtime Population", aliases: ["/physics gas"], category: "Physics", args: { systemId: "string?", count: "number?", radius: "number?", bounds: "{x,y,width,height}?" }, ai: { expose: true, description: "Create a lightweight seeded runtime particle population." }, action: (_api, args) => createPhysicsPopulation(args) },
+    { id: "physics.mapping.create", name: "Physics: Add Collision Mapping", aliases: ["/physics mapping"], category: "Physics", args: { systemId: "string?", collisionClass: "body-body|body-wall?", target: "midi-note|expressive-voice?" }, ai: { expose: true, description: "Add a collision mapping for the active physics world. Choose an Expressive Synth voice for a self-contained wind-chime style hit, or the default MIDI Note target for external routing." }, action: (_api, args = {}) => createPhysicsMapping(args) },
     { id: "physics.constraint.tool", name: "Physics: Draw Constraint", aliases: ["/physics constraint"], category: "Physics", args: { kind: "pin|spring|distance|revolute|weld|attractor|thruster", systemId: "string?" }, action: (_api, args) => startPhysicsTool(args?.kind || "spring", args?.systemId) },
     { id: "physics.play", name: "Physics: Play", aliases: ["/physics play"], category: "Physics", action: (_api, args) => { synchronizePausedPhysicsBodies(); resumePhysicsAudio(); physicsRuntimeRef.current.play(args?.systemId || activePhysicsSystemId); } },
     { id: "physics.pause", name: "Physics: Pause", aliases: ["/physics pause"], category: "Physics", action: (_api, args) => physicsRuntimeRef.current.pause(args?.systemId || activePhysicsSystemId) },
@@ -15462,6 +15570,8 @@ function App() {
   const contextPromptInputRef = useRef(null);
   const contextPromptActionRef = useRef(null);
   const lastPointerRef = useRef(null);
+  const historyInputCaptureRef = useRef({ gestures: new Map(), lastHoverAt: 0, lastWheelAt: 0, lastBusAt: new Map() });
+  const walkthroughInputTimerRef = useRef(null);
   const lastNonTransparentColorRef = useRef(theme === "dark" ? "#121212" : "#ffffff");
 
   useEffect(() => {
@@ -15471,6 +15581,283 @@ function App() {
     window.addEventListener("pointermove", rememberPointer, { passive: true });
     return () => window.removeEventListener("pointermove", rememberPointer);
   }, []);
+
+  // Input capture is deliberately opt-in and split into canvas/performance and
+  // UI scopes. Pointer events cover mouse, pen, and touch in modern browsers,
+  // so a single listener gives History a faithful stream without
+  // double-recording compatibility mouse events. Pressed gestures are stored
+  // as one sampled action; hover moves are throttled so a tutorial can retain
+  // cursor context without turning every motion event into a React render.
+  useEffect(() => {
+    const includeCanvasInput = historyIncludeCanvasInput;
+    const includeUiInput = historyIncludeUiInput;
+    const includeInput = includeCanvasInput || includeUiInput;
+    historyController.setInputCapture({ includeCanvasInput, includeUiInput });
+    const capture = historyInputCaptureRef.current;
+    capture.gestures.clear();
+    capture.lastHoverAt = 0;
+    capture.lastWheelAt = 0;
+    capture.lastBusAt.clear();
+    if (!includeInput) return undefined;
+
+    const targetSummary = target => {
+      if (!target || target.nodeType !== 1) return null;
+      const label = target.getAttribute?.("aria-label") || target.getAttribute?.("title") || target.textContent?.trim();
+      return {
+        id: target.id || null,
+        role: target.getAttribute?.("role") || null,
+        tag: String(target.tagName || "").toLowerCase() || null,
+        label: label ? String(label).slice(0, 120) : null,
+      };
+    };
+    const inputScopeForTarget = target => {
+      const element = target?.nodeType === 1 ? target : null;
+      if (element?.closest?.(
+        ".underscores-panel-shell, #command-palette-overlay, .custom-floating-context-menu, .context-menu, .dropdown-menu, .popover, .App-menu, .App-menu_top, .ToolIcon, input, textarea, select, button, [contenteditable='true'], [role='button'], [role='menuitem'], [role='tab'], [role='textbox']"
+      )) return "ui";
+      return "canvas";
+    };
+    const sampleFor = (event, startedAt = performance.now()) => {
+      const clientX = Number(event.clientX);
+      const clientY = Number(event.clientY);
+      const api = excalidrawAPIRef.current;
+      const appState = api?.getAppState?.();
+      const scenePoint = appState && Number.isFinite(clientX) && Number.isFinite(clientY)
+        ? viewportCoordsToSceneCoords({ clientX, clientY }, appState)
+        : { x: clientX, y: clientY };
+      const activeTool = appState?.activeTool?.type || null;
+      const pointerType = event.pointerType || "mouse";
+      const eventType = activeTool === "laser" || laserToolActive
+        ? "laser"
+        : pointerType === "mouse" ? "mouse" : "pointer";
+      return {
+        time: Math.max(0, performance.now() - startedAt),
+        phase: event.type.replace(/^(?:pointer|mouse)/, "") || "move",
+        scene: { x: Number(scenePoint?.x) || 0, y: Number(scenePoint?.y) || 0 },
+        viewport: { x: Number.isFinite(clientX) ? clientX : 0, y: Number.isFinite(clientY) ? clientY : 0 },
+        pointerId: Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : 0,
+        pointerType,
+        button: Number.isFinite(Number(event.button)) ? Number(event.button) : 0,
+        buttons: Number.isFinite(Number(event.buttons)) ? Number(event.buttons) : 0,
+        pressure: Number.isFinite(Number(event.pressure)) ? Number(event.pressure) : undefined,
+        tiltX: Number.isFinite(Number(event.tiltX)) ? Number(event.tiltX) : undefined,
+        tiltY: Number.isFinite(Number(event.tiltY)) ? Number(event.tiltY) : undefined,
+        modifiers: {
+          alt: Boolean(event.altKey),
+          ctrl: Boolean(event.ctrlKey),
+          meta: Boolean(event.metaKey),
+          shift: Boolean(event.shiftKey),
+        },
+        eventType,
+        scope: inputScopeForTarget(event.target),
+        tool: activeTool,
+        target: targetSummary(event.target),
+      };
+    };
+    const append = (gesture, sample) => {
+      if (gesture.samples.length >= 4096) {
+        // Keep the beginning and end of long gestures while bounding session
+        // size. This is enough for faithful tutorial playback and export.
+        gesture.samples = gesture.samples.filter((_item, index) => index % 2 === 0);
+      }
+      gesture.samples.push(sample);
+    };
+    const actionAt = startedAt => {
+      if (historyClockMode !== "realtime" || !Number.isFinite(historyController.recordStartedAt)) return undefined;
+      return Math.max(0, (startedAt - historyController.recordStartedAt - historyController.recordPausedDuration) / 1000);
+    };
+    const recordGesture = (gesture, phase, event) => {
+      if (!gesture?.samples?.length || historyController.status !== "recording") return;
+      const finishedAt = performance.now();
+      const duration = Math.max(0, (finishedAt - gesture.startedAt) / 1000);
+      const lastSample = gesture.samples[gesture.samples.length - 1];
+      const args = {
+        eventType: gesture.eventType,
+        scope: gesture.scope,
+        phase,
+        pointerId: gesture.pointerId,
+        pointerType: gesture.pointerType,
+        tool: gesture.tool,
+        color: gesture.eventType === "laser" ? laserColor : null,
+        opacity: gesture.eventType === "laser" ? laserOpacity : null,
+        target: lastSample?.target || targetSummary(event?.target),
+        samples: gesture.samples,
+      };
+      const at = actionAt(gesture.startedAt);
+      historyController.record({
+        kind: "input",
+        track: "input",
+        source: "pointer",
+        ...(Number.isFinite(at) ? { at } : {}),
+        duration,
+        transportTime: scoreTimeRef.current,
+        args,
+      });
+    };
+    const handlePointer = event => {
+      if (historyController.status !== "recording" || (historyController.recordFilter !== "all" && historyController.recordFilter !== "input")) return;
+      if (["click", "dblclick", "contextmenu", "wheel", "pointerover", "pointerout", "pointerenter", "pointerleave", "mouseover", "mouseout"].includes(event.type)) {
+        const now = performance.now();
+        if (event.type === "wheel" && now - capture.lastWheelAt < 33) return;
+        if (event.type === "wheel") capture.lastWheelAt = now;
+        const sample = sampleFor(event, now);
+        if ((sample.scope === "ui" ? includeUiInput : includeCanvasInput) === false) return;
+        const eventType = event.type.startsWith("pointer") ? sample.eventType : "mouse";
+        historyController.record({
+          kind: "input",
+          track: "input",
+          source: "mouse",
+          transportTime: scoreTimeRef.current,
+          args: {
+            eventType,
+            scope: sample.scope,
+            phase: event.type,
+            pointerId: sample.pointerId,
+            pointerType: sample.pointerType,
+            tool: sample.tool,
+            color: eventType === "laser" ? laserColor : null,
+            opacity: eventType === "laser" ? laserOpacity : null,
+            target: sample.target,
+            delta: event.type === "wheel" ? {
+              x: Number(event.deltaX) || 0,
+              y: Number(event.deltaY) || 0,
+              z: Number(event.deltaZ) || 0,
+              mode: Number(event.deltaMode) || 0,
+            } : null,
+            samples: [sample],
+          },
+        });
+        return;
+      }
+      const pointerId = Number.isFinite(Number(event.pointerId)) ? Number(event.pointerId) : 0;
+      const isDown = event.type === "pointerdown" || event.type === "mousedown";
+      const isMove = event.type === "pointermove" || event.type === "mousemove";
+      const isUp = event.type === "pointerup" || event.type === "mouseup" || event.type === "pointercancel";
+      if (isDown) {
+        const startedAt = performance.now();
+        const first = sampleFor(event, startedAt);
+        if ((first.scope === "ui" ? includeUiInput : includeCanvasInput) === false) return;
+        capture.gestures.set(pointerId, {
+          startedAt,
+          pointerId,
+          pointerType: first.pointerType,
+          eventType: first.eventType,
+          scope: first.scope,
+          tool: first.tool,
+          samples: [first],
+        });
+        return;
+      }
+      const gesture = capture.gestures.get(pointerId);
+      if (isMove) {
+        if (gesture) {
+          append(gesture, sampleFor(event, gesture.startedAt));
+          return;
+        }
+        const now = performance.now();
+        if (now - capture.lastHoverAt < 33) return;
+        capture.lastHoverAt = now;
+        const sample = sampleFor(event, now);
+        if ((sample.scope === "ui" ? includeUiInput : includeCanvasInput) === false) return;
+        historyController.record({
+          kind: "input",
+          track: "input",
+          source: "pointer",
+          transportTime: scoreTimeRef.current,
+          args: {
+            eventType: sample.eventType,
+            scope: sample.scope,
+            phase: "move",
+            pointerId,
+            pointerType: sample.pointerType,
+            tool: sample.tool,
+            color: sample.eventType === "laser" ? laserColor : null,
+            opacity: sample.eventType === "laser" ? laserOpacity : null,
+            target: sample.target,
+            samples: [sample],
+          },
+        });
+        return;
+      }
+      if (isUp) {
+        if (gesture) {
+          append(gesture, sampleFor(event, gesture.startedAt));
+          recordGesture(gesture, event.type === "pointercancel" ? "cancel" : "up", event);
+          capture.gestures.delete(pointerId);
+        }
+      }
+    };
+    const handleRecordingState = (_snapshot, eventName) => {
+      if (["recording.stop", "session.cleared", "session.loaded"].includes(eventName)) capture.gestures.clear();
+    };
+    const unsubscribe = historyController.subscribe(handleRecordingState);
+    const unsubscribeInputBus = eventBus.subscribe("input.*", event => {
+      if (historyController.status !== "recording" || !event?.detail) return;
+      const now = performance.now();
+      const source = String(event.detail.source || event.name.split(".")[1] || "input");
+      const scope = event.detail.scope === "ui" || event.detail.targetScope === "ui" || source === "ui" ? "ui" : "canvas";
+      if ((scope === "ui" ? includeUiInput : includeCanvasInput) === false) return;
+      const last = capture.lastBusAt.get(source) || 0;
+      if (now - last < 33) return;
+      capture.lastBusAt.set(source, now);
+      historyController.record({
+        kind: "input",
+        track: "input",
+        source: "input-bus",
+        transportTime: scoreTimeRef.current,
+        args: {
+          eventType: event.name.split(".").slice(1, -1).join(".") || source,
+          scope,
+          phase: event.name.split(".").at(-1) || "move",
+          samples: [event.detail],
+        },
+      });
+    });
+    window.addEventListener("pointerdown", handlePointer, true);
+    window.addEventListener("pointermove", handlePointer, true);
+    window.addEventListener("pointerup", handlePointer, true);
+    window.addEventListener("pointercancel", handlePointer, true);
+    window.addEventListener("pointerover", handlePointer, true);
+    window.addEventListener("pointerout", handlePointer, true);
+    window.addEventListener("pointerenter", handlePointer, true);
+    window.addEventListener("pointerleave", handlePointer, true);
+    const supportsPointerEvents = typeof window.PointerEvent === "function";
+    if (!supportsPointerEvents) {
+      window.addEventListener("mousedown", handlePointer, true);
+      window.addEventListener("mousemove", handlePointer, true);
+      window.addEventListener("mouseup", handlePointer, true);
+      window.addEventListener("mouseover", handlePointer, true);
+      window.addEventListener("mouseout", handlePointer, true);
+    }
+    window.addEventListener("click", handlePointer, true);
+    window.addEventListener("dblclick", handlePointer, true);
+    window.addEventListener("contextmenu", handlePointer, true);
+    window.addEventListener("wheel", handlePointer, { capture: true, passive: true });
+    return () => {
+      unsubscribe();
+      unsubscribeInputBus();
+      capture.gestures.clear();
+      window.removeEventListener("pointerdown", handlePointer, true);
+      window.removeEventListener("pointermove", handlePointer, true);
+      window.removeEventListener("pointerup", handlePointer, true);
+      window.removeEventListener("pointercancel", handlePointer, true);
+      window.removeEventListener("pointerover", handlePointer, true);
+      window.removeEventListener("pointerout", handlePointer, true);
+      window.removeEventListener("pointerenter", handlePointer, true);
+      window.removeEventListener("pointerleave", handlePointer, true);
+      if (!supportsPointerEvents) {
+        window.removeEventListener("mousedown", handlePointer, true);
+        window.removeEventListener("mousemove", handlePointer, true);
+        window.removeEventListener("mouseup", handlePointer, true);
+        window.removeEventListener("mouseover", handlePointer, true);
+        window.removeEventListener("mouseout", handlePointer, true);
+      }
+      window.removeEventListener("click", handlePointer, true);
+      window.removeEventListener("dblclick", handlePointer, true);
+      window.removeEventListener("contextmenu", handlePointer, true);
+      window.removeEventListener("wheel", handlePointer, true);
+    };
+  }, [eventBus, excalidrawAPI, historyClockMode, historyController, historyIncludeCanvasInput, historyIncludeUiInput, laserColor, laserOpacity, laserToolActive]);
 
   // Toggle the command palette on Cmd + / and the context command field on
   // Option + Shift + Minus. Keep these presentation shortcuts global.
@@ -17479,9 +17866,13 @@ function App() {
     return base;
   };
 
-  const createWebEmbed = (args = {}) => {
+  const createWebEmbed = async (args = {}) => {
     const rawUrl = String(args?.url || "").trim()
-      || window.prompt("Web embed URL", "")?.trim();
+      || (await requestPrompt("Web embed URL", "", {
+        title: "Create web embed",
+        confirmLabel: "Add",
+        placeholder: "https://example.com",
+      }))?.trim();
     if (!rawUrl) return null;
     const url = sanitizeEmbedURL(rawUrl);
     if (!url || !isAllowedEmbedURL(url)) {
@@ -18363,8 +18754,9 @@ function App() {
         setSceneExchangeStatus(`Added ${modelName} as a 3D model source.`);
         return;
       }
-      createWebEmbed({ url: embedUrl, clientX: event.clientX, clientY: event.clientY });
-      setSceneExchangeStatus(`Added web embed: ${embedUrl}`);
+      void createWebEmbed({ url: embedUrl, clientX: event.clientX, clientY: event.clientY })
+        .then(() => setSceneExchangeStatus(`Added web embed: ${embedUrl}`))
+        .catch(error => setSceneExchangeStatus(error?.message || "Could not add web embed."));
       return;
     }
     const file = event.dataTransfer?.files?.[0];
@@ -21360,6 +21752,27 @@ function App() {
     getCanvasApi: () => excalidrawAPIRef.current,
     sceneToViewport: sceneCoordsToViewportCoords,
   });
+  runtimeCallbacksRef.current.walkthroughPerformInput = cue => {
+    const args = cue?.args || {};
+    const samples = Array.isArray(cue?.samples) ? cue.samples : (Array.isArray(args.samples) ? args.samples : []);
+    if (!samples.length) return;
+    window.clearTimeout(walkthroughInputTimerRef.current);
+    const opacity = Number.isFinite(Number(cue.opacity ?? args.opacity))
+      ? Math.max(0, Math.min(100, Number(cue.opacity ?? args.opacity))) / 100
+      : 0.9;
+    setSessionInputPlaybackOverlay([{
+      id: cue.id || `walkthrough-input-${Date.now()}`,
+      eventType: cue.eventType || args.eventType || "pointer",
+      scope: cue.scope || args.scope || "canvas",
+      samples,
+      pointer: samples.at(-1),
+      color: cue.color || args.color || null,
+      opacity,
+      active: false,
+    }]);
+    const duration = Math.max(0, Number(cue.duration ?? args.duration) || 0);
+    if (duration > 0) walkthroughInputTimerRef.current = window.setTimeout(() => setSessionInputPlaybackOverlay([]), duration * 1000);
+  };
   runtimeCallbacksRef.current.walkthroughEvaluate = assertion => evaluateWalkthroughAssertion(assertion, {
     panels: Object.fromEntries(UNDERSCORES_PANELS.map(panel => [panel.id, {
       open: Boolean(openPanels[panel.id]),
@@ -21368,6 +21781,8 @@ function App() {
     }])),
     elements: excalidrawAPIRef.current?.getSceneElementsIncludingDeleted?.() || [],
     selectedElementIds: Object.keys(excalidrawAPIRef.current?.getAppState?.().selectedElementIds || {}).filter(id => excalidrawAPIRef.current.getAppState().selectedElementIds[id]),
+    physics: relationshipGraphRef.current,
+    physicsPlaying: physicsWorldPlaying,
     events: eventBus.recent(250),
   });
 
@@ -21386,17 +21801,24 @@ function App() {
   useEffect(() => {
     if (!excalidrawAPI || walkthroughRecoveryCheckedRef.current) return;
     walkthroughRecoveryCheckedRef.current = true;
-    void historyLibrary.list("underscores-walkthrough-recovery").then(records => {
+    void historyLibrary.list("underscores-walkthrough-recovery").then(async records => {
       const recovery = records.find(record => record.id === "active-walkthrough-recovery");
       if (!recovery?.baseline) return;
-      const restore = window.confirm("A guided walkthrough was interrupted. Restore the starting patch? Choose Cancel to keep the current patch.");
+      const restore = await requestConfirm("A guided walkthrough was interrupted. Restore the starting patch? Choose Cancel to keep the current patch.", {
+        title: "Resume walkthrough",
+        confirmLabel: "Restore patch",
+      });
       if (restore) void restoreSessionBaseline(recovery.baseline);
       void historyLibrary.remove("active-walkthrough-recovery");
     });
-  }, [excalidrawAPI, historyLibrary]);
+  }, [excalidrawAPI, historyLibrary, requestConfirm]);
 
   const stopWalkthroughWithChoice = async () => {
-    const restore = window.confirm("Restore the starting patch? Choose Cancel to keep the walkthrough results.");
+    const restore = await requestConfirm("Restore the starting patch? Choose Cancel to keep the walkthrough results.", {
+      title: "Finish walkthrough",
+      confirmLabel: "Restore patch",
+      cancelLabel: "Keep results",
+    });
     const snapshot = await walkthroughRunner.stop({ restore });
     if (snapshot.trace) await historyLibrary.put(snapshot.trace);
     setSceneExchangeStatus(restore ? "Restored the patch captured before the walkthrough." : "Kept the walkthrough results.");
@@ -21479,6 +21901,8 @@ function App() {
     historyController.start({
       baseline,
       includePresentation: historyIncludePresentation,
+      includeCanvasInput: historyIncludeCanvasInput,
+      includeUiInput: historyIncludeUiInput,
       clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, sampleRate: scoreSampleRate, historyMode: historyClockMode },
       name: `Session ${new Date().toLocaleString()}`,
     });
@@ -21498,6 +21922,16 @@ function App() {
     panicMidi();
     if (wasRecording) await historyLibrary.put(historyController.get());
   };
+
+  const cancelPendingHistoryMacroActions = () => {
+    historyMacroTimersRef.current.forEach(timer => window.clearTimeout(timer));
+    historyMacroTimersRef.current.clear();
+  };
+
+  useEffect(() => () => {
+    historyMacroTimersRef.current.forEach(timer => window.clearTimeout(timer));
+    historyMacroTimersRef.current.clear();
+  }, []);
 
   const getHistoryActionElementIds = action => {
     const ids = new Set();
@@ -21588,18 +22022,31 @@ function App() {
     historyController.load(parseUnderscoresSession(text));
   };
 
-  const clearHistorySession = () => {
-    if (!window.confirm("Clear all recorded History actions?")) return;
+  const clearHistorySession = async () => {
+    if (!await requestConfirm("Clear all recorded History actions?", {
+      title: "Clear History",
+      confirmLabel: "Clear",
+    })) return;
+    // Macro insertion is intentionally independent from the History action
+    // list, so stopping the History controller alone cannot cancel its delayed
+    // callbacks. Clear both execution paths before replacing the session.
+    cancelPendingHistoryMacroActions();
     historyController.clear({
       baseline: captureSessionBaseline(),
       includePresentation: historyIncludePresentation,
+      includeCanvasInput: historyIncludeCanvasInput,
+      includeUiInput: historyIncludeUiInput,
       clock: { fps: transportFps, tempo: scoreTempo, signature: scoreTimeSignature, sampleRate: scoreSampleRate, historyMode: historyClockMode },
       name: `Session ${new Date().toLocaleString()}`,
     });
   };
 
   const saveHistoryMacro = async (selection = {}, requestedName = "") => {
-    const name = requestedName || window.prompt("Sequence name", "New sequence");
+    const name = requestedName || await requestPrompt("Sequence name", "New sequence", {
+      title: "Save sequence",
+      confirmLabel: "Save",
+      placeholder: "New sequence",
+    });
     if (!name) return;
     const options = Array.isArray(selection) ? { actionIds: selection } : (selection || {});
     const macro = createUnderscoresMacro(historyController.get(), { ...options, name });
@@ -21614,7 +22061,12 @@ function App() {
       : { x: 0, y: 0 };
     const actions = instantiateUnderscoresMacro(macro, { mode, anchor: { x: center.x, y: center.y } });
     for (const action of actions) {
-      window.setTimeout(() => applySessionAction(action, { emitMidi: historyMidiArmed }), Math.max(0, action.at * 1000));
+      let timer = null;
+      timer = window.setTimeout(() => {
+        historyMacroTimersRef.current.delete(timer);
+        void applySessionAction(action, { emitMidi: historyMidiArmed });
+      }, Math.max(0, action.at * 1000));
+      historyMacroTimersRef.current.add(timer);
     }
     eventBus.emit("macro.insert", { id: macro.id, mode, actionCount: actions.length }, { source: "history" });
   };
@@ -23205,8 +23657,9 @@ function App() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !excalidrawAPI) return;
-    const trusted = window.confirm(
-      "IanniX files are executable JavaScript. Only continue with a file you trust. This compatibility mode is not a security sandbox."
+    const trusted = await requestConfirm(
+      "IanniX files are executable JavaScript. Only continue with a file you trust. This compatibility mode is not a security sandbox.",
+      { title: "Import trusted IanniX script", confirmLabel: "Import" },
     );
     if (!trusted) return;
     try {
@@ -24251,8 +24704,8 @@ function App() {
       renameScript(iannixScriptNameDraft);
       setEditingIannixScriptName(false);
     };
-    const deleteScript = () => {
-      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+    const deleteScript = async () => {
+      if (!activeScript || !await requestConfirm(`Delete “${activeScript.name}”?`, { title: "Delete IanniX script", confirmLabel: "Delete" })) return;
       const remaining = iannixScripts.filter(script => script.id !== activeScript.id);
       setIannixScripts(remaining);
       setActiveIannixScriptId(remaining[0]?.id || "");
@@ -24519,8 +24972,8 @@ function App() {
       setP5ScriptNameDraft(activeScript.name || "Untitled p5 sketch");
       setEditingP5ScriptName(true);
     };
-    const deleteScript = () => {
-      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+    const deleteScript = async () => {
+      if (!activeScript || !await requestConfirm(`Delete “${activeScript.name}”?`, { title: "Delete p5 sketch", confirmLabel: "Delete" })) return;
       const remaining = p5Scripts.filter(script => script.id !== activeScript.id);
       setP5Scripts(remaining);
       setActiveP5ScriptId(remaining[0]?.id || "");
@@ -24844,8 +25297,8 @@ function App() {
       }
       setEditingPlayCoreScriptName(false);
     };
-    const deleteScript = () => {
-      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+    const deleteScript = async () => {
+      if (!activeScript || !await requestConfirm(`Delete “${activeScript.name}”?`, { title: "Delete Play Core script", confirmLabel: "Delete" })) return;
       const remaining = playCoreScripts.filter(script => script.id !== activeScript.id);
       setPlayCoreScripts(remaining);
       setActivePlayCoreScriptId(remaining[0]?.id || "");
@@ -25362,8 +25815,8 @@ function App() {
       }
       setEditingSvgScriptName(false);
     };
-    const deleteScript = () => {
-      if (!activeScript || !window.confirm(`Delete “${activeScript.name}”?`)) return;
+    const deleteScript = async () => {
+      if (!activeScript || !await requestConfirm(`Delete “${activeScript.name}”?`, { title: "Delete SVG script", confirmLabel: "Delete" })) return;
       const remaining = svgScripts.filter(script => script.id !== activeScript.id);
       const next = remaining[0] || null;
       setSvgScripts(remaining);
@@ -29851,6 +30304,8 @@ function App() {
               commands={commandRegistry.list()}
               macros={historyMacros}
               includePresentation={historyIncludePresentation}
+              includeCanvasInput={historyIncludeCanvasInput}
+              includeUiInput={historyIncludeUiInput}
               presentationMode={presentationMode}
               emitMidi={historyMidiArmed}
               showPointer={historyShowPointer}
@@ -29859,6 +30314,18 @@ function App() {
               recordFilter={historyRecordFilter}
               timeContext={timeContext}
               onIncludePresentationChange={setHistoryIncludePresentation}
+              onIncludeCanvasInputChange={value => {
+                setHistoryIncludeCanvasInput(value);
+                localStorage.setItem("underscores_history_include_canvas_input", String(value));
+                localStorage.setItem("underscores_history_include_ui_input", String(historyIncludeUiInput));
+                localStorage.removeItem("underscores_history_include_input");
+              }}
+              onIncludeUiInputChange={value => {
+                setHistoryIncludeUiInput(value);
+                localStorage.setItem("underscores_history_include_ui_input", String(value));
+                localStorage.setItem("underscores_history_include_canvas_input", String(historyIncludeCanvasInput));
+                localStorage.removeItem("underscores_history_include_input");
+              }}
               onPresentationModeChange={setPresentationMode}
               onEmitMidiChange={setHistoryMidiArmed}
               onShowPointerChange={setHistoryShowPointer}
@@ -29923,7 +30390,10 @@ function App() {
               onCreate={() => createWalkthroughDocument({ title: "Untitled walkthrough", steps: [] })}
               onCreateFromHistory={() => createWalkthroughFromHistory()}
               onUpdate={updateWalkthroughDocument}
-              onDelete={(id) => { if (window.confirm("Delete this walkthrough?")) deleteWalkthroughDocument(id); }}
+              onDelete={id => {
+                void requestConfirm("Delete this walkthrough?", { title: "Delete walkthrough", confirmLabel: "Delete" })
+                  .then(confirmed => { if (confirmed) deleteWalkthroughDocument(id); });
+              }}
               onStart={startWalkthrough}
               onPause={() => walkthroughRunner.pause()}
               onResume={() => walkthroughRunner.resume()}
@@ -29979,6 +30449,7 @@ function App() {
               onFocusMediaSource={focusMediaInputSource}
               onPatchMediaSource={patchMediaInputSource}
               onPickObjectReference={pickObjectReferenceForProperty}
+              onRequestConfirm={requestConfirm}
               onSelectSvgNode={selectSvgNode}
               onExtractSvgSubpath={extractSvgSubpathToUnderscores}
               onAssignSvgNodeRole={assignSvgNodeRole}
@@ -31241,6 +31712,83 @@ function App() {
           </svg>
         )}
 
+        {sessionInputPlaybackOverlay.length > 0 && (
+          <svg className="underscores-session-input-overlay" aria-hidden="true">
+            {sessionInputPlaybackOverlay.map(input => {
+              const scenePath = input.samples
+                .map(sample => sample?.scene)
+                .filter(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
+              const screenPath = scenePath.map(point => mapCanvasToScreen(point.x, point.y));
+              const color = input.color ? getThemeColor(input.color) : "var(--underscores-accent)";
+              return (
+                <g key={`${input.id}-input`}>
+                  {input.eventType === "laser" && screenPath.length >= 2 ? (
+                    <polyline
+                      points={screenPath.map(point => `${point[0]},${point[1]}`).join(" ")}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={Math.max(1.5, Number(input.opacity) * 3)}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={input.opacity}
+                    />
+                  ) : null}
+                  {historyShowPointer && input.pointer?.scene ? (() => {
+                    const [x, y] = mapCanvasToScreen(input.pointer.scene.x, input.pointer.scene.y);
+                    return (
+                      <g transform={`translate(${x} ${y})`}>
+                        <circle r="8" fill="none" stroke={color} strokeWidth="1.5" opacity={input.opacity} />
+                        <circle r="2.5" fill={color} opacity={Math.min(1, input.opacity + 0.1)} />
+                      </g>
+                    );
+                  })() : null}
+                </g>
+              );
+            })}
+          </svg>
+        )}
+
+        {historyShowPointer && (sessionInputPlaybackOverlay.length > 0 || sessionPlaybackOverlay.length > 0) && typeof document !== "undefined" && (() => {
+          // Input samples retain viewport coordinates so a tutorial can point
+          // into panels as well as the canvas. Render the cursor in a fixed
+          // portal rather than the canvas SVG, keeping it visible above every
+          // dock and making UI-event playback as legible as canvas playback.
+          const cursorInput = [...sessionInputPlaybackOverlay].reverse().find(input => {
+            const point = input?.pointer;
+            return point?.viewport
+              ? Number.isFinite(Number(point.viewport.x)) && Number.isFinite(Number(point.viewport.y))
+              : point?.scene && Number.isFinite(Number(point.scene.x)) && Number.isFinite(Number(point.scene.y));
+          });
+          const strokeCursor = cursorInput ? null : [...sessionPlaybackOverlay].reverse().find(stroke => {
+            const point = stroke?.pointer;
+            return point?.scene && Number.isFinite(Number(point.scene.x)) && Number.isFinite(Number(point.scene.y));
+          });
+          const pointer = cursorInput?.pointer || strokeCursor?.pointer;
+          if (!pointer) return null;
+          const position = pointer.viewport
+            ? [Number(pointer.viewport.x), Number(pointer.viewport.y)]
+            : mapCanvasToScreen(Number(pointer.scene.x), Number(pointer.scene.y));
+          const color = cursorInput?.color
+            ? getThemeColor(cursorInput.color)
+            : strokeCursor?.strokeColor
+              ? getThemeColor(strokeCursor.strokeColor)
+              : "var(--underscores-laser-color)";
+          return createPortal(
+            <svg
+              className="underscores-session-virtual-cursor"
+              style={{ left: `${position[0]}px`, top: `${position[1]}px`, "--underscores-virtual-cursor-color": color }}
+              viewBox="0 0 30 38"
+              aria-hidden="true"
+            >
+              <circle className="underscores-session-virtual-cursor-halo" cx="8" cy="8" r="7" />
+              <path className="underscores-session-virtual-cursor-arrow" d="M2 2v25l7-7 5 12 5-2-5-12h10L2 2z" />
+            </svg>,
+            // Keep the portal under the themed shell so custom laser and
+            // foreground tokens remain available to the fixed cursor.
+            document.querySelector(".underscores-shell") || document.body,
+          );
+        })()}
+
         {renderGlobalModifiersOverlay()}
         {renderIannixOverlay()}
         {renderBezierEditorOverlay()}
@@ -31261,6 +31809,8 @@ function App() {
         onSkip={() => walkthroughRunner.next({ skipped: true })}
         onStop={stopWalkthroughWithChoice}
       />
+
+      <FeedbackDialog dialog={feedbackDialog} onResolve={resolveFeedbackDialog} />
 
       {dockPreview && (
         <div className={`panel-dock-preview panel-dock-preview-${dockPreview}`} aria-hidden="true" />

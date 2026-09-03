@@ -20,9 +20,10 @@ Recordings that cross a loop boundary become source-continuous linked segments w
 
 ## Timeline and editing
 
-Arrangement rows extend the existing transport timeline. Take rows are collapsed summaries by default and expand into individual object lanes. Arranged objects not belonging to a take receive standalone lanes; objects without clips do not consume timeline rows.
+Arrangement rows extend the existing transport timeline. Take rows are collapsed summaries by default and expand into individual object lanes. When a take is expanded, its aggregate row remains a header and the clips render only in the object lanes, avoiding duplicate clip tiles. Arranged objects not belonging to a take receive standalone lanes; objects without clips do not consume timeline rows.
 
 - Select a clip to select its canvas object; selecting an arranged object reveals its lane.
+- Shift-click clips to select a contiguous range, Command/Ctrl-click to toggle individual clips, or drag across the clip area to make a block selection. A multi-clip selection selects all corresponding canvas objects while the last selected clip remains the active edit target.
 - Drag a clip body to move it.
 - Drag either edge to trim the active window. A left trim also advances the source offset.
 - Hold Command while dragging for major ruler snapping, or Command+Shift for minor snapping.

@@ -30,31 +30,41 @@ export const normalizeSessionAction = (action, sequence = 0) => {
     args: cloneValue(action.args || {}),
     source: action.source || "app",
     groupId: action.groupId || null,
-    track: action.track || (action.presentation ? "presentation" : "world"),
+    track: action.track || (action.presentation ? "presentation" : action.kind === "input" ? "input" : "world"),
     presentation: !!action.presentation,
     enabled: action.enabled !== false,
     result: cloneValue(action.result),
   };
 };
 
-export const createUnderscoresSession = ({ baseline = null, clock = {}, includePresentation = true, name = "Untitled session", seed } = {}) => ({
-  type: UNDERSCORES_SESSION_TYPE,
-  version: UNDERSCORES_SESSION_VERSION,
-  id: createId(),
-  name,
-  createdAt: new Date().toISOString(),
-  seed: Number.isFinite(seed) ? seed : Math.floor(Math.random() * 0x7fffffff),
-  clock: {
-    fps: numeric(clock.fps, 30),
-    tempo: numeric(clock.tempo, 120),
-    signature: cloneValue(clock.signature || { numerator: 4, denominator: 4 }),
-    sampleRate: Math.min(768000, Math.max(8000, numeric(clock.sampleRate, 48000))),
-    historyMode: normalizeHistoryClockMode(clock.historyMode),
-  },
-  includePresentation,
-  baseline: cloneValue(baseline),
-  actions: [],
-});
+export const createUnderscoresSession = ({ baseline = null, clock = {}, includePresentation = true, includeInput = false, includeCanvasInput, includeUiInput, name = "Untitled session", seed } = {}) => {
+  // `includeInput` was the original single switch. Treat it as the opt-in
+  // default for both scopes when loading/creating an older session, while
+  // allowing new callers to choose Canvas and UI input independently.
+  const canvasInput = includeCanvasInput == null ? Boolean(includeInput) : Boolean(includeCanvasInput);
+  const uiInput = includeUiInput == null ? Boolean(includeInput) : Boolean(includeUiInput);
+  return {
+    type: UNDERSCORES_SESSION_TYPE,
+    version: UNDERSCORES_SESSION_VERSION,
+    id: createId(),
+    name,
+    createdAt: new Date().toISOString(),
+    seed: Number.isFinite(seed) ? seed : Math.floor(Math.random() * 0x7fffffff),
+    clock: {
+      fps: numeric(clock.fps, 30),
+      tempo: numeric(clock.tempo, 120),
+      signature: cloneValue(clock.signature || { numerator: 4, denominator: 4 }),
+      sampleRate: Math.min(768000, Math.max(8000, numeric(clock.sampleRate, 48000))),
+      historyMode: normalizeHistoryClockMode(clock.historyMode),
+    },
+    includePresentation,
+    includeInput: canvasInput || uiInput,
+    includeCanvasInput: canvasInput,
+    includeUiInput: uiInput,
+    baseline: cloneValue(baseline),
+    actions: [],
+  };
+};
 
 export const parseUnderscoresSession = payload => {
   const value = typeof payload === "string" ? JSON.parse(payload) : cloneValue(payload);
@@ -113,6 +123,53 @@ const getSessionDuration = session => (session?.actions || []).reduce(
   0,
 );
 
+// UI input is sampled at the browser event rate. Keeping every click, hover,
+// and compatibility mouse event as its own History row makes tutorial takes
+// noisy without adding replay fidelity. Adjacent events from the same UI
+// pointer stream are therefore folded into one action; any command, scene,
+// canvas-input, or changed pointer family naturally starts a new clip.
+const canMergeUiInput = (previous, next) => {
+  if (!previous || previous.kind !== "input" || previous.args?.scope !== "ui") return false;
+  if (next.kind !== "input" || next.args?.scope !== "ui") return false;
+  const previousEventType = previous.args?.eventType || "pointer";
+  const nextEventType = next.args?.eventType || "pointer";
+  if (previousEventType !== nextEventType) return false;
+  const previousPointerType = previous.args?.pointerType || null;
+  const nextPointerType = next.args?.pointerType || null;
+  if (previousPointerType !== nextPointerType) return false;
+  const previousPointerId = previous.args?.pointerId;
+  const nextPointerId = next.args?.pointerId;
+  const samePointer = previousPointerId == null || nextPointerId == null || previousPointerId === nextPointerId;
+  // Do not splice a second gesture into the middle of an active one: that
+  // would make the merged sample clock run backwards during playback.
+  return samePointer && next.at >= previous.at + previous.duration;
+};
+
+const mergeUiInputActions = (previous, next) => {
+  const merged = cloneValue(previous);
+  const previousSamples = Array.isArray(previous.args?.samples) ? previous.args.samples : [];
+  const nextSamples = Array.isArray(next.args?.samples) ? next.args.samples : [];
+  const offsetMs = Math.max(0, (next.at - previous.at) * 1000);
+  const samples = nextSamples.map(sample => {
+    const copy = cloneValue(sample) || {};
+    if (Number.isFinite(Number(copy.time))) copy.time = Math.max(0, Number(copy.time) + offsetMs);
+    else copy.time = offsetMs;
+    return copy;
+  });
+  const end = Math.max(previous.at + previous.duration, next.at + next.duration);
+  merged.duration = Math.max(0, end - previous.at);
+  merged.durationValue = fixedTimeValue(merged.duration);
+  merged.args = {
+    ...merged.args,
+    ...cloneValue(next.args || {}),
+    phase: next.args?.phase || merged.args?.phase || "stream",
+    samples: [...previousSamples, ...samples],
+  };
+  // The latest target and pointer metadata describe the tail of the clip and
+  // are the useful values for both the editor and the virtual cursor.
+  return normalizeSessionAction(merged, previous.sequence);
+};
+
 export class UnderscoresSessionController {
   constructor({
     now = () => performance.now(),
@@ -163,7 +220,7 @@ export class UnderscoresSessionController {
     for (const listener of this.listeners) listener(snapshot, event, detail);
   }
 
-  start({ baseline = null, clock = {}, includePresentation = true, name, append = true } = {}) {
+  start({ baseline = null, clock = {}, includePresentation = true, includeInput = false, includeCanvasInput, includeUiInput, name, append = true } = {}) {
     const appendToExisting = append && this.session.actions.length > 0;
     const resumeCursor = appendToExisting ? this.playhead : 0;
     this.stopPlayback({ reset: !appendToExisting });
@@ -171,10 +228,15 @@ export class UnderscoresSessionController {
       this.session = {
         ...this.session,
         includePresentation,
+        includeInput: includeCanvasInput == null && includeUiInput == null
+          ? Boolean(includeInput)
+          : Boolean(includeCanvasInput) || Boolean(includeUiInput),
+        includeCanvasInput: includeCanvasInput == null ? Boolean(includeInput) : Boolean(includeCanvasInput),
+        includeUiInput: includeUiInput == null ? Boolean(includeInput) : Boolean(includeUiInput),
         clock: { ...this.session.clock, ...cloneValue(clock) },
       };
     } else {
-      this.session = createUnderscoresSession({ baseline, clock, includePresentation, name });
+      this.session = createUnderscoresSession({ baseline, clock, includePresentation, includeInput, includeCanvasInput, includeUiInput, name });
     }
     this.status = "recording";
     this.playhead = resumeCursor;
@@ -187,9 +249,9 @@ export class UnderscoresSessionController {
     return this.snapshot();
   }
 
-  clear({ baseline = null, clock = {}, includePresentation = true, name } = {}) {
+  clear({ baseline = null, clock = {}, includePresentation = true, includeInput = false, includeCanvasInput, includeUiInput, name } = {}) {
     this.stopPlayback({ reset: true });
-    this.session = createUnderscoresSession({ baseline, clock, includePresentation, name });
+    this.session = createUnderscoresSession({ baseline, clock, includePresentation, includeInput, includeCanvasInput, includeUiInput, name });
     this.status = "idle";
     this.playhead = 0;
     this.recordCursor = 0;
@@ -240,6 +302,26 @@ export class UnderscoresSessionController {
     return this.recordFilter;
   }
 
+  setIncludeInput(includeInput = false) {
+    this.session.includeInput = Boolean(includeInput);
+    this.session.includeCanvasInput = Boolean(includeInput);
+    this.session.includeUiInput = Boolean(includeInput);
+    this.notify("session.options");
+    return this.session.includeInput;
+  }
+
+  setInputCapture({ includeCanvasInput, includeUiInput } = {}) {
+    this.session.includeCanvasInput = Boolean(includeCanvasInput);
+    this.session.includeUiInput = Boolean(includeUiInput);
+    this.session.includeInput = this.session.includeCanvasInput || this.session.includeUiInput;
+    this.notify("session.options");
+    return {
+      includeInput: this.session.includeInput,
+      includeCanvasInput: this.session.includeCanvasInput,
+      includeUiInput: this.session.includeUiInput,
+    };
+  }
+
   record(action) {
     if (this.status !== "recording") return null;
     if (this.recordFilter !== "all" && action.kind !== this.recordFilter) return null;
@@ -250,6 +332,25 @@ export class UnderscoresSessionController {
       at: Number.isFinite(action.at) ? action.at : implicitAt,
     }, this.session.actions.length);
     if (normalized.presentation && !this.session.includePresentation) return null;
+    if (normalized.kind === "input") {
+      if (!this.session.includeInput) return null;
+      const scope = normalized.args?.scope;
+      if (scope === "ui" && !this.session.includeUiInput) return null;
+      if (scope === "canvas" && !this.session.includeCanvasInput) return null;
+    }
+    const previous = this.session.actions[this.session.actions.length - 1];
+    if (canMergeUiInput(previous, normalized)) {
+      const merged = mergeUiInputActions(previous, normalized);
+      this.session.actions[this.session.actions.length - 1] = merged;
+      if (this.recordClockMode === "active") {
+        this.recordCursor = merged.at + merged.duration;
+        this.playhead = this.recordCursor;
+      } else if (this.recordClockMode === "realtime") {
+        this.playhead = Math.max(this.playhead, merged.at + merged.duration);
+      }
+      this.notify("action.recorded", merged);
+      return cloneValue(merged);
+    }
     this.session.actions.push(normalized);
     this.session.actions.sort((a, b) => a.at - b.at || a.sequence - b.sequence);
     if (this.recordClockMode === "active") {

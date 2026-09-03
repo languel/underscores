@@ -46,6 +46,110 @@ test("history actions retain authored time expressions while keeping numeric com
   assert.equal(action.durationValue.expression, "0.5 s");
 });
 
+test("input capture is opt-in and preserves sampled pointer metadata", () => {
+  let now = 1000;
+  const controller = new UnderscoresSessionController({ now: () => now });
+  controller.start({ includeInput: true });
+  now = 1200;
+  const recorded = controller.record({
+    kind: "input",
+    duration: 0.2,
+    args: {
+      eventType: "laser",
+      phase: "gesture",
+      samples: [{ scene: { x: 10, y: 20 }, pointerType: "mouse", pressure: 0.5 }],
+    },
+  });
+  assert.equal(recorded.track, "input");
+  assert.equal(recorded.args.eventType, "laser");
+  assert.equal(recorded.args.samples[0].scene.x, 10);
+  const parsed = parseUnderscoresSession(controller.export());
+  assert.equal(parsed.includeInput, true);
+  assert.equal(parsed.actions[0].args.samples[0].pointerType, "mouse");
+
+  const disabled = new UnderscoresSessionController({ now: () => now });
+  disabled.start({ includeInput: false });
+  assert.equal(disabled.record({ kind: "input", args: { samples: [] } }), null);
+});
+
+test("input capture scopes migrate the legacy aggregate switch", () => {
+  const legacy = parseUnderscoresSession({
+    type: "underscores-session",
+    version: 2,
+    includeInput: true,
+    actions: [],
+  });
+  assert.equal(legacy.includeCanvasInput, true);
+  assert.equal(legacy.includeUiInput, true);
+
+  const scoped = createUnderscoresSession({ includeCanvasInput: true, includeUiInput: false });
+  assert.equal(scoped.includeInput, true);
+  assert.equal(scoped.includeCanvasInput, true);
+  assert.equal(scoped.includeUiInput, false);
+
+  const controller = new UnderscoresSessionController({ now: () => 0 });
+  controller.start({ includeCanvasInput: true, includeUiInput: false });
+  assert.equal(controller.record({ kind: "input", args: { scope: "ui", samples: [] } }), null);
+  assert.notEqual(controller.record({ kind: "input", args: { scope: "canvas", samples: [] } }), null);
+});
+
+test("adjacent UI input samples share one clip until another action intervenes", () => {
+  const controller = new UnderscoresSessionController({ now: () => 0 });
+  controller.start({ includeUiInput: true, includeCanvasInput: false });
+  controller.record({
+    kind: "input",
+    at: 0.1,
+    args: { scope: "ui", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 10, y: 10 } }] },
+  });
+  controller.record({
+    kind: "input",
+    at: 0.2,
+    duration: 0.02,
+    args: { scope: "ui", eventType: "mouse", pointerType: "mouse", phase: "click", samples: [{ time: 0, viewport: { x: 20, y: 20 } }] },
+  });
+  let session = controller.get();
+  assert.equal(session.actions.length, 1);
+  assert.equal(session.actions[0].duration, 0.12);
+  assert.equal(session.actions[0].args.samples.length, 2);
+  assert.equal(session.actions[0].args.samples[1].time, 100);
+
+  controller.record({ kind: "command", at: 0.4, commandId: "panel.open", args: {} });
+  controller.record({
+    kind: "input",
+    at: 0.5,
+    args: { scope: "ui", eventType: "mouse", pointerType: "mouse", phase: "move", samples: [{ time: 0, viewport: { x: 30, y: 30 } }] },
+  });
+  controller.record({
+    kind: "input",
+    at: 0.6,
+    args: { scope: "ui", eventType: "pointer", pointerType: "touch", phase: "move", samples: [{ time: 0, viewport: { x: 40, y: 40 } }] },
+  });
+  session = controller.get();
+  assert.equal(session.actions.length, 4);
+  assert.equal(session.actions[2].args.samples.length, 1);
+  assert.equal(session.actions[3].args.pointerType, "touch");
+});
+
+test("clearing a session stops an active playback transport", async () => {
+  let nextFrame = null;
+  const cancelled = [];
+  const controller = new UnderscoresSessionController({
+    now: () => 0,
+    requestFrame: callback => { nextFrame = callback; return 17; },
+    cancelFrame: handle => cancelled.push(handle),
+  });
+  const session = createUnderscoresSession({ baseline: { marker: true } });
+  session.actions = [{ id: "action", kind: "command", at: 1, duration: 0, enabled: true }];
+  controller.load(session);
+  await controller.play({ restoreBaseline: false });
+  assert.equal(controller.snapshot().status, "playing");
+  controller.clear();
+  assert.equal(controller.snapshot().status, "idle");
+  assert.equal(controller.snapshot().session.actions.length, 0);
+  assert.deepEqual(cancelled, [17]);
+  assert.equal(nextFrame !== null, true);
+});
+
 test("playback restores baseline and suppresses disabled and presentation actions", async () => {
   const restored = [];
   const applied = [];

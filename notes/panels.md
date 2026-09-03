@@ -120,7 +120,7 @@ The detailed control and styling contract lives in [UI guidelines](ui-guidelines
 
 ## Canonical scene layers
 
-Underscores uses Excalidraw's scene array as the single canonical back-to-front paint order. The Outliner presents that same stack front-to-back, so the first visible row is the frontmost object. Drag an Outliner row above or below another row to move it in front of or behind that object; the updated scene array is committed through Excalidraw history and is therefore shared by canvas rendering, export, selection, and subsequent native ordering actions.
+Underscores uses Excalidraw's scene array as the single canonical back-to-front paint order. The Outliner presents that same stack front-to-back, so the first visible row is the frontmost object. Drag an Outliner row above or below another row to move it in front of or behind that object; the updated scene array is committed through Excalidraw history and is therefore shared by canvas rendering, export, selection, and subsequent native ordering actions. Native objects without an authored name receive a stable type/id label such as `stroke_ab12`, while score, code, media, and explicitly renamed objects keep their authored labels. Double-click a native row label to replace its generated label.
 
 Live p5 frames follow this stack relative to other p5 frames. They are rendered in Underscores's DOM overlay above Excalidraw's native canvas, so an individual p5 frame cannot yet be interleaved between two native Excalidraw elements. That compositing boundary is deliberate for the current fast live-canvas runtime; a future unified compositor can remove it without changing the canonical order model.
 

@@ -10,6 +10,12 @@ const actionLabel = (action, commandNames) => {
   if (action.kind === "scene") return action.args?.label || "Canvas edit";
   if (action.kind === "midi") return action.args?.description || "MIDI event";
   if (action.kind === "presentation") return action.args?.label || "Presentation";
+  if (action.kind === "input") {
+    const eventType = action.args?.eventType || "pointer";
+    const scope = action.args?.scope === "ui" ? "UI" : action.args?.scope === "canvas" ? "Canvas" : "Input";
+    const sampleCount = action.args?.samples?.length || 0;
+    return `${scope} · ${eventType}${sampleCount ? ` · ${sampleCount} samples` : ""}`;
+  }
   return commandNames.get(action.commandId) || action.commandId || action.kind;
 };
 
@@ -22,6 +28,8 @@ const HistoryPanel = memo(function HistoryPanel({
   commands = [],
   macros = [],
   includePresentation,
+  includeCanvasInput = false,
+  includeUiInput = false,
   presentationMode = false,
   emitMidi,
   showPointer,
@@ -30,6 +38,8 @@ const HistoryPanel = memo(function HistoryPanel({
   recordFilter,
   timeContext,
   onIncludePresentationChange,
+  onIncludeCanvasInputChange,
+  onIncludeUiInputChange,
   onPresentationModeChange,
   onEmitMidiChange,
   onShowPointerChange,
@@ -132,9 +142,11 @@ const HistoryPanel = memo(function HistoryPanel({
           </select>
         </label>
         <label {...infoProps("Presentation", "Include panel, view, and other presentation-only actions in the recording.")}><span>Presentation</span><input type="checkbox" checked={includePresentation} onChange={event => onIncludePresentationChange(event.target.checked)} /></label>
+        <label {...infoProps("Canvas / performance input", "Capture pointer, mouse, pen, touch, wheel, and laser gestures on the canvas and interactive performance surfaces. Leave this on while recording a performance, and turn UI events off when settings and panel edits should stay out of the take.")}><span>Canvas / performance</span><input type="checkbox" checked={includeCanvasInput} onChange={event => onIncludeCanvasInputChange?.(event.target.checked)} /></label>
+        <label {...infoProps("UI input", "Capture pointer and mouse activity on panels, controls, editors, menus, and settings. Enable this for tutorials that demonstrate interface actions; leave it off for a clean performance take.")}><span>UI events</span><input type="checkbox" checked={includeUiInput} onChange={event => onIncludeUiInputChange?.(event.target.checked)} /></label>
         <label {...infoProps("Live presentation mode", "Show embeds configured as Presentation only. Use this for lectures or playback; web pages remain hidden when it is off.")}><span>Live presentation</span><input type="checkbox" checked={presentationMode} onChange={event => onPresentationModeChange?.(event.target.checked)} /></label>
         <label {...infoProps("MIDI armed", "Recorded MIDI is sent to the currently selected route only while this is armed.")}><span>MIDI armed</span><input type="checkbox" checked={emitMidi} onChange={event => onEmitMidiChange(event.target.checked)} /></label>
-        <label {...infoProps("Pointer", "Show the recorded pointer position during History playback.")}><span>Pointer</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
+        <label {...infoProps("Virtual cursor", "Show a glowing playback cursor at recorded canvas and UI positions. The cursor uses the current laser color and can point into panels as well as the canvas.")}><span>Virtual cursor</span><input type="checkbox" checked={showPointer} onChange={event => onShowPointerChange(event.target.checked)} /></label>
         <label {...infoProps("Loop overdub", "Use the active transport loop as a repeating drawing pass. Recording rewinds to the loop start, starts transport playback, and adds completed strokes to the next pass.")}><span>Loop overdub</span><input type="checkbox" checked={loopOverdub} onChange={event => onLoopOverdubChange(event.target.checked)} disabled={isRecording} /></label>
         <div className="history-file-actions">
           <button type="button" onClick={onClear} disabled={!actions.length || isRecording || isPlaying}>Clear</button>
@@ -154,7 +166,7 @@ const HistoryPanel = memo(function HistoryPanel({
         <span className="history-section-controls">
           <select value={recordFilter} onChange={event => onRecordFilterChange(event.target.value)} aria-label="Choose which History action type to record" {...infoProps("Record filter", "Record every action or restrict the session to one action category.")}>
             <option value="all">Record all</option>
-            {['stroke', 'command', 'scene', 'midi', 'presentation'].map(kind => <option key={kind} value={kind}>{kind}</option>)}
+            {['stroke', 'command', 'scene', 'midi', 'presentation', 'input'].map(kind => <option key={kind} value={kind}>{kind}</option>)}
           </select>
           <span>{actions.length}</span>
         </span>

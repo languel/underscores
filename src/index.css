@@ -7216,6 +7216,7 @@ body .excalidraw .iannix-arrangement-take-actions button.active {
   left: var(--arrangement-label-width, 116px);
   right: 0;
   overflow: hidden;
+  cursor: crosshair;
 }
 
 .iannix-timeline.arrangement-labels-collapsed .iannix-arrangement-row-label {
@@ -7259,6 +7260,14 @@ body .excalidraw .iannix-arrangement-clip.loop {
 body .excalidraw .iannix-arrangement-clip.selected {
   z-index: 3;
   border-color: var(--transport-accent);
+}
+
+.iannix-timeline-selection-rect {
+  position: absolute;
+  z-index: 8;
+  border: 1px solid var(--transport-accent);
+  background: color-mix(in srgb, var(--transport-accent) 18%, transparent);
+  pointer-events: none;
 }
 
 body .excalidraw .iannix-arrangement-clip:active {
@@ -7517,6 +7526,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 }
 
 .underscores-session-playback-overlay,
+.underscores-session-input-overlay,
 .underscores-gesture-playback-overlay {
   position: absolute;
   inset: 0;

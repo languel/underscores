@@ -540,6 +540,7 @@ const SvgObjectControls = ({
   svgJointConnectionCount = 0,
   svgJointDetachArmed = false,
   onDetachSvgJoint,
+  onRequestConfirm,
 }) => {
   const [newAttributeName, setNewAttributeName] = useState("");
   const [newAttributeValue, setNewAttributeValue] = useState("");
@@ -652,10 +653,14 @@ const SvgObjectControls = ({
                 <input
                   type="checkbox"
                   checked={svg.runtime.trustedScripts}
-                  onChange={event => {
+                  onChange={async event => {
                     const trustedScripts = event.target.checked
-                      ? window.confirm("Run this SVG’s embedded scripts in an isolated sandbox? Network access remains blocked.")
+                      ? await onRequestConfirm?.("Run this SVG’s embedded scripts in an isolated sandbox? Network access remains blocked.", {
+                        title: "Trust embedded SVG scripts",
+                        confirmLabel: "Trust scripts",
+                      })
                       : false;
+                    if (event.target.checked && !trustedScripts) return;
                     update({ runtime: { ...svg.runtime, trustedScripts } });
                   }}
                 />
@@ -1318,6 +1323,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
   onFocusMediaSource,
   onPatchMediaSource,
   onPickObjectReference,
+  onRequestConfirm,
 }) {
   const [filter, setFilter] = useState("");
   const [pinnedPaths, setPinnedPaths] = useState(() => {
@@ -1509,6 +1515,7 @@ const PropertiesPanel = memo(function PropertiesPanel({
                 svgJointConnectionCount={svgJointConnectionCount}
                 svgJointDetachArmed={svgJointDetachArmed}
                 onDetachSvgJoint={onDetachSvgJoint}
+                onRequestConfirm={onRequestConfirm}
               />
               <ScoreRoleControls
                 element={element}

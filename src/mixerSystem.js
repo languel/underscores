@@ -54,7 +54,13 @@ const destinationFromLegacyOutput = legacyOutputId => {
 };
 
 export const createDefaultMixer = ({ legacyOutputId = "", gmPrograms = null } = {}) => {
-  const legacy = destinationFromLegacyOutput(legacyOutputId);
+  // Internal General MIDI is the useful zero-configuration destination. The
+  // browser still waits for its first user gesture before audio can run, but
+  // the Mixer is ready to make sound instead of silently routing to nowhere.
+  const legacy = legacyOutputId ? destinationFromLegacyOutput(legacyOutputId) : {
+    destination: MIXER_DESTINATION_INTERNAL,
+    instrument: MIXER_INSTRUMENT_GM,
+  };
   return {
     version: MIXER_SCHEMA_VERSION,
     tracks: Array.from({ length: DEFAULT_MIXER_TRACK_COUNT }, (_, index) => createMixerTrack(index, {

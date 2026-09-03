@@ -23,6 +23,13 @@ test("legacy score output migrates to sixteen MIDI-addressed mixer tracks", () =
   assert.equal(mixer.tracks[15].midiChannel, 16);
 });
 
+test("a fresh mixer is ready for internal audio and MIDI routing", () => {
+  const mixer = createDefaultMixer();
+  assert.equal(mixer.tracks[0].destination, MIXER_DESTINATION_INTERNAL);
+  assert.equal(mixer.tracks[0].instrument, MIXER_INSTRUMENT_GM);
+  assert.equal(mixer.tracks[0].enabled, true);
+});
+
 test("mixer routing observes MIDI channels, mute, and solo", () => {
   let mixer = normalizeMixer({ tracks: [
     { id: "a", midiChannel: 1, destination: MIXER_DESTINATION_INTERNAL, instrument: MIXER_INSTRUMENT_GM },
