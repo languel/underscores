@@ -27,11 +27,25 @@ test("virtual streams are writable and owner cleanup is scoped", () => {
 
 test("read-only streams reject external writes and image frames stay transient", () => {
   const registry = new UnderscoresStreamRegistry();
-  registry.register({ id: "camera", kind: "image", roles: ["output"], writable: false });
+  registry.register({ id: "camera", kind: "image", roles: ["output"], writable: false, metadata: { alpha: true } });
   assert.throws(() => registry.publish("camera", { kind: "image", image: { width: 2, height: 2 } }), /read-only/);
   const image = { width: 3, height: 2 };
   registry.publish("camera", { kind: "image", image }, { internal: true });
   assert.equal(registry.get("camera").snapshot().image, image);
+  assert.equal(registry.get("camera").snapshot().alpha, true);
+  registry.publish("camera", { kind: "image", image, alpha: false }, { internal: true });
+  assert.equal(registry.get("camera").snapshot().alpha, false);
+});
+
+test("image stream snapshots expose the live runtime stream when available", () => {
+  const runtimeStream = { id: "processed-camera" };
+  const registry = new UnderscoresStreamRegistry({
+    getRuntimeSource: id => id === "camera" ? { stream: () => runtimeStream } : null,
+  });
+  registry.register({ id: "camera", kind: "image", roles: ["output"], metadata: { alpha: true } });
+  assert.equal(registry.get("camera").stream(), runtimeStream);
+  registry.register({ id: "other", kind: "image", roles: ["output"] });
+  assert.equal(registry.get("other").stream(), null);
 });
 
 test("stream sample normalizes typed coordinate data", () => {

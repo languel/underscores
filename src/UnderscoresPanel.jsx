@@ -48,7 +48,7 @@ export const PanelIcon = ({ id }) => {
     return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h9M4 12h9M4 18h9"/><path d="m16 9 5 3-5 3V9Z"/></svg>;
   }
   if (id === "physics") {
-    return <svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(35 12 12)"/><ellipse cx="12" cy="12" rx="9" ry="3.8" transform="rotate(-35 12 12)"/><circle cx="12" cy="12" r="1.5"/></svg>;
+    return <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="3.2"/><circle cx="16" cy="13" r="3.2"/><path d="M3 19h18M8 11.4l2.6 2.8M13.4 10.8 16 8.8"/></svg>;
   }
   if (id === "iannix") {
     return <svg viewBox="0 0 24 24" aria-hidden="true">

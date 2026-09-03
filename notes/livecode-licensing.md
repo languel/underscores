@@ -16,6 +16,25 @@ Local `npm run dev`, test, and build workflows remain available for development.
 
 The environment variable is an administrative acknowledgement after compliance; it is not a substitute for the obligations above. The [Strudel custom UI guide](https://strudel.cc/technical-manual/project-start/) is the upstream integration reference.
 
+## Internal demo profile
+
+For controlled testing, `npm run build:demo` creates a single-file artifact with
+the native Strudel runtime included. The profile is deliberately separate from
+the student/public-safe build so its eventual feature allowlist can be defined
+independently; today it includes the full local runtime. Deployment remains an
+explicit opt-in:
+
+```bash
+UNDERSCORES_AGPL_COMPLIANCE=acknowledged npm run deploy:demo
+```
+
+This publishes the demo artifact through the existing `gh-pages` mechanism but
+does not weaken or satisfy the full public-release gate above. The exact
+spelling is `UNDERSCORES_AGPL_COMPLIANCE` (including the leading `U` and the
+final `S` in `UNDERSCORES`), with the literal value `acknowledged`. The gate
+also reads the value from an ignored local `.env` or `.env.local` file; copy
+`.env.example` to `.env`, set the value, and run `npm run deploy:demo`.
+
 ## Student/public-safe artifact
 
 The repository has a separate classroom release profile documented in

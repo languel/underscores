@@ -8,6 +8,7 @@ export default defineConfig(({ mode }) => {
   const environment = loadEnv(mode, process.cwd(), '')
   const buildSingle = environment.BUILD_SINGLE === 'true'
   const publicSafeBuild = environment.PUBLIC_SAFE_BUILD === 'true'
+  const demoBuild = environment.DEMO_BUILD === 'true'
   const prattApiKey = String(environment.PRATT_LLM_API_KEY || '').trim()
   const sourcePath = relative => fileURLToPath(new URL(relative, import.meta.url))
   const aliases = {
@@ -103,6 +104,7 @@ export default defineConfig(({ mode }) => {
       "process.env": {},
       "import.meta.env.VITE_PRATT_LLM_API_KEY_AVAILABLE": JSON.stringify(Boolean(prattApiKey)),
       "import.meta.env.VITE_PUBLIC_SAFE_BUILD": JSON.stringify(publicSafeBuild),
+      "import.meta.env.VITE_DEMO_BUILD": JSON.stringify(demoBuild),
     }
   }
 })

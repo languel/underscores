@@ -155,7 +155,7 @@ import MediaMapOverlay from "./MediaMapOverlay.jsx";
 import { isMediaMapElement, normalizeMediaMapConfig } from "./mediaMap.js";
 import { createMediaSemanticFrame, FACE_DISPLAY_GROUPS, getHolisticDisplayLayers, mediaLandmarkFeatureId, POSE_DISPLAY_GROUPS } from "./mediaLandmarkOntology.js";
 import { createMediaBindingRuntimeState, mediaBindingRuntimeHasExpired, mediaDrivenElementPosition, resolveMediaBindingGate, resolveMediaBindingSignal, shouldAppendMediaStrokePoint } from "./mediaActorRuntime.js";
-import { CANVAS_CAPTURE_TARGET_FRAME_ALL, canUseAsCanvasCaptureTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, getConnectedMediaSourceIds, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, writeHolisticSettingsPreset } from "./mediaStream.js";
+import { CANVAS_CAPTURE_TARGET_FRAME_ALL, canUseAsCanvasCaptureTarget, createMediaBinding, createMediaSource, createMediaStreamConfig, getConnectedMediaSourceIds, inferMediaType, isMediaStreamElement, isSupportedMediaFile, MEDIA_ACTORS_ARMED_STORAGE_KEY, MEDIA_BINDING_TYPES, MEDIA_SOURCE_STORAGE_KEY, MEDIA_STREAM_KINDS, normalizeMediaBinding, normalizeMediaSources, normalizeMediaStreamConfig, patchMediaSource, patchMediaStreamConfig, readHolisticSettingsPreset, shouldRenderMediaStream, writeHolisticSettingsPreset } from "./mediaStream.js";
 import { createMediaStreamsApi, getMediaRuntimeResult, getMediaRuntimeSource, requestMediaSegmentation, setMediaSemanticFrame, setMediaSessionFile, setMediaStreamDescriptors } from "./mediaStreamRuntime.js";
 import { createUnifiedStreamsApi, UnderscoresStreamRegistry } from "./streamRuntime.js";
 import { generateUnicursalPath, getUnicursalSnapshotStrokeWidth, transformUnicursalFrame, transformUnicursalPoint, UNICURSAL_PRESETS } from "./unicursalPath.js";
@@ -3806,7 +3806,7 @@ function App() {
   const semanticMediaStreamsApiRef = useRef(null);
   if (!semanticMediaStreamsApiRef.current) semanticMediaStreamsApiRef.current = createMediaStreamsApi();
   const streamRegistryRef = useRef(null);
-  if (!streamRegistryRef.current) streamRegistryRef.current = new UnderscoresStreamRegistry();
+  if (!streamRegistryRef.current) streamRegistryRef.current = new UnderscoresStreamRegistry({ getRuntimeSource: getMediaRuntimeSource });
   const physicsRuntimeRef = useRef(null);
   if (!physicsRuntimeRef.current) physicsRuntimeRef.current = new PhysicsRuntimeController({
     eventBus,
@@ -4395,7 +4395,11 @@ function App() {
       mediaSources.filter(source => source.enabled).forEach(source => {
         const id = `media:${source.id}`;
         next.add(id);
-        registry.register({ id, name: source.name, kind: "image", capabilities: ["image"], roles: ["input", "output"], writable: false, metadata: { mediaSourceId: source.id, sourceKind: source.kind } });
+        const alpha = source.media?.mediaType !== "audio"
+          && (source.kind === MEDIA_STREAM_KINDS.CAMERA
+            ? source.key?.mode !== "off"
+            : source.kind === MEDIA_STREAM_KINDS.CANVAS || source.media?.mediaType === "image");
+        registry.register({ id, name: source.name, kind: "image", capabilities: ["image"], roles: ["input", "output"], writable: false, metadata: { mediaSourceId: source.id, sourceKind: source.kind, alpha } });
       });
       managed.forEach(id => { if (!next.has(id)) registry.remove(id); });
       managed.clear(); next.forEach(id => managed.add(id));
@@ -4403,9 +4407,15 @@ function App() {
     sync();
     const timer = window.setInterval(() => {
       mediaSources.filter(source => source.enabled).forEach(source => {
-        const element = getMediaRuntimeSource(source.id)?.element;
+        const runtime = getMediaRuntimeSource(source.id);
+        const element = runtime?.element;
         if (!element || !(element.width || element.videoWidth)) return;
-        registry.publish(`media:${source.id}`, { kind: "image", image: element, width: element.width || element.videoWidth, height: element.height || element.videoHeight }, { internal: true });
+        // Only advertise alpha when the runtime renderer can actually retain
+        // it. Native camera/video elements are opaque in browsers (including
+        // virtual-camera BGRA feeds), while keyed camera output and canvas or
+        // image sources use a transparent canvas.
+        const alpha = runtime?.alpha === true;
+        registry.publish(`media:${source.id}`, { kind: "image", image: element, width: element.width || element.videoWidth, height: element.height || element.videoHeight, alpha }, { internal: true });
       });
     }, 100);
     return () => {
@@ -4659,6 +4669,12 @@ function App() {
       hasRetainedFrame: Boolean(getLivecodeFrameSnapshot(element.id)),
     })
   )), [livecodeOverlayScene.elements]);
+  const mediaUnderlayActive = useMemo(() => p5OverlayScene.elements.some(element => {
+    if (!isMediaStreamElement(element) || !shouldRenderMediaStream(element)) return false;
+    const config = normalizeMediaStreamConfig(element.customData?.underscoresMediaStream);
+    return config.kind === MEDIA_STREAM_KINDS.PREVIEW && config.compositeMode === "underlay";
+  }), [p5OverlayScene.elements]);
+  const transparentCanvasUnderlayActive = livecodeUnderlayActive || mediaUnderlayActive;
   const [livecodeEditorId, setLivecodeEditorId] = useState(null);
   const scriptPanelVisibleRef = useRef(false);
   const [editingLivecodeNameId, setEditingLivecodeNameId] = useState(null);
@@ -11860,7 +11876,7 @@ function App() {
   useEffect(() => {
     const api = excalidrawAPIRef.current;
     if (!api) return;
-    const viewBackgroundColor = livecodeUnderlayActive
+    const viewBackgroundColor = transparentCanvasUnderlayActive
       ? "transparent"
       : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
     if (api.getAppState()?.viewBackgroundColor !== viewBackgroundColor) {
@@ -11871,7 +11887,7 @@ function App() {
       });
     }
     api.refresh?.();
-  }, [excalidrawAPI, interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, livecodeUnderlayActive, theme]);
+  }, [excalidrawAPI, interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, transparentCanvasUnderlayActive, theme]);
 
   // Scroll chat messages to bottom
   useEffect(() => {
@@ -18737,10 +18753,26 @@ function App() {
     const source = mediaSources.find(candidate => candidate.id === sourceId);
     if (!source) return null;
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
-    if (!targetElementId) return createMediaStreamObject(MEDIA_STREAM_KINDS.PREVIEW, { name: source.name, sourceId });
+    if (!targetElementId) return createMediaStreamObject(MEDIA_STREAM_KINDS.PREVIEW, {
+      name: source.name,
+      sourceId,
+      compositeMode: source.compositeMode,
+      compositeOpacity: source.compositeOpacity,
+      blendMode: source.blendMode,
+      backgroundMode: source.backgroundMode,
+      key: source.key,
+    });
     const target = elements.find(element => !element.isDeleted && element.id === targetElementId);
     if (!target || !["rectangle", "frame"].includes(target.type) || isMediaStreamElement(target)) return null;
-    const config = createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW, { name: source.name, sourceId });
+    const config = createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW, {
+      name: source.name,
+      sourceId,
+      compositeMode: source.compositeMode,
+      compositeOpacity: source.compositeOpacity,
+      blendMode: source.blendMode,
+      backgroundMode: source.backgroundMode,
+      key: source.key,
+    });
     api.updateScene({
       elements: elements.map(element => element.id === target.id ? {
         ...element,
@@ -18774,7 +18806,15 @@ function App() {
     const outputSize = Number(source.output?.maxDimension) || 0;
     const width = runtimeWidth || outputSize || 480;
     const height = runtimeHeight || (outputSize ? Math.round(outputSize * 0.75) : 320);
-    const config = createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW, { name: source.name, sourceId });
+    const config = createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW, {
+      name: source.name,
+      sourceId,
+      compositeMode: source.compositeMode,
+      compositeOpacity: source.compositeOpacity,
+      blendMode: source.blendMode,
+      backgroundMode: source.backgroundMode,
+      key: source.key,
+    });
     const elements = api.getSceneElementsIncludingDeleted?.() || api.getSceneElements();
     const base = createBaseElement("rectangle", point.x - width / 2, point.y - height / 2, width, height, "transparent");
     const element = {
@@ -19038,7 +19078,7 @@ function App() {
     const exportBounds = getElementsExportBounds(elements);
     if (!exportBounds) return null;
     const includeBackground = background !== "transparent";
-    const captureBackground = background === "transparent" || livecodeUnderlayActive
+    const captureBackground = background === "transparent" || transparentCanvasUnderlayActive
       ? "transparent"
       : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme);
     try {
@@ -19068,7 +19108,7 @@ function App() {
     } catch {
       return null;
     }
-  }, [interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, livecodeUnderlayActive, p5OverlayScene.canvasElements, theme]);
+  }, [interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, transparentCanvasUnderlayActive, p5OverlayScene.canvasElements, theme]);
 
   // A reusable object-input gesture.  Media canvas sources are the first
   // consumer, but parameter routes and other object-backed inputs can supply
@@ -25495,14 +25535,14 @@ function App() {
       if (selectedHost) {
         try {
           attachPlayCoreScriptToSelection({ script, source: script.source, targetIds: [selectedHost.id] });
-          setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}” in this frame.`, "success");
+          setPlayCoreLiveStatus(`Loaded Underscores example “${example.name}” in this frame.`, "success");
           return;
         } catch (error) {
           setPlayCoreLiveStatus(error.message || `Loaded “${example.name}” in the editor.`, "info");
           return;
         }
       }
-      setPlayCoreLiveStatus(`Loaded original play.core example “${example.name}”. Select a frame and press Run to attach it.`, "success");
+      setPlayCoreLiveStatus(`Loaded Underscores example “${example.name}”. Select a frame and press Run to attach it.`, "success");
     };
     return <div className="iannix-properties iannix-script-pane p5-script-pane">
       <p className="p5-script-status">Play Core programs render ASCII cells in a Underscores frame. Use <code>@param</code> with <code>__.params</code>; <code>__.canvas</code>, events, and transport are the same bridge exposed to p5.</p>
@@ -25548,7 +25588,7 @@ function App() {
           <option value="">— Play Core draft —</option>
           {playCoreScripts.map(script => <option key={script.id} value={script.id}>{script.name}</option>)}
         </optgroup>
-        <optgroup label="Original play.core examples">
+        <optgroup label="Underscores examples">
           {PLAY_CORE_EXAMPLES.map(example => <option key={example.id} value={`example:${example.id}`}>{example.category} · {example.name}</option>)}
         </optgroup>
       </select>}
@@ -29275,6 +29315,19 @@ function App() {
           onDocumentationHover={updateInfoViewFromDocumentation}
           arrangementRuntime={arrangementRuntime}
         />
+        <MediaStreamOverlay
+          layer="underlay"
+          elements={p5OverlayScene.elements}
+          appState={p5OverlayScene.appState}
+          sources={mediaSources}
+          onPatch={patchMediaStreamObject}
+          onFocusSource={focusMediaInputSource}
+          onResults={handleMediaStreamResults}
+          onPathFrame={handleUnicursalPathFrame}
+          transportTime={scoreTime}
+          transportPlaying={scorePlaying}
+          arrangementRuntime={arrangementRuntime}
+        />
         <Excalidraw 
           theme={theme} 
           isCollaborating={collaborationState.active}
@@ -29293,7 +29346,7 @@ function App() {
             appState: {
               currentItemRoughness: 0,
               currentItemRoundness: globalRoundness ? "round" : "sharp",
-              viewBackgroundColor: livecodeUnderlayActive
+              viewBackgroundColor: transparentCanvasUnderlayActive
                 ? "transparent"
                 : canvasColorForExcalidraw(interfaceTheme.canvas.color, interfaceTheme.canvas.opacity, theme),
               gridSize: null,
@@ -31710,6 +31763,7 @@ function App() {
           onMediaEnded={handleArrangementMediaEnded}
         />
         <MediaStreamOverlay
+          layer="overlay"
           elements={p5OverlayScene.elements}
           appState={p5OverlayScene.appState}
           sources={mediaSources}

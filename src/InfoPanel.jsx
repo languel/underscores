@@ -176,7 +176,7 @@ const UnderscoresApiGuide = () => (
         <div><dt><code>api.relations</code></dt><dd>Read and edit the versioned relationship graph, resolve stable endpoints, claim runtime writer channels, and register typed stream adapters.</dd></div>
         <div><dt><code>api.physics</code></dt><dd>Create bodies, populations, and constraints; control system clocks; query, grab, impulse, materialize, reset, apply, and snapshot the physics runtime.</dd></div>
         <div><dt><code>api.mixer</code></dt><dd>Read the mixer or add, update, and remove tracks.</dd></div>
-        <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
+        <div><dt><code>api.streams</code></dt><dd>List or resolve typed space, time, value, event, and image streams. Image snapshots expose <code>sample.alpha</code> when the frame can carry transparency, and active image entries expose <code>stream()</code> for a browser capture bridge. Semantic MediaPipe <code>feature()</code>/<code>features()</code> remain available. <code>inputs</code> and <code>outputs</code> are filtered views, not separate systems.</dd></div>
       </dl>
     </details>
     <pre><code>{`// Follow the current Excalidraw stroke
@@ -327,7 +327,7 @@ export function main({ x, y }, context) {
       <h3>Programs and frames</h3>
       <ul>
         <li>The program selector is a local working-file catalog. <strong>Save</strong> creates or updates a file; <strong>Duplicate</strong>, <strong>New</strong>, <strong>Import</strong>, and <strong>Delete</strong> mirror the p5 workflow.</li>
-        <li>The separate <strong>Original play.core examples</strong> group loads a local, editable upstream starter as a saved Underscores program. It never needs a network request after this app loads.</li>
+        <li>The separate <strong>Underscores examples</strong> group contains original, local, editable starters for the Play Core-style lifecycle. They never need a network request after this app loads.</li>
         <li>A saved file can be attached to several frames. Saving it recompiles every linked frame; each host retains its own size, interaction setting, and <code>@param</code> values.</li>
         <li>Choose another saved program while one host is selected to attach it immediately. Press <strong>F2</strong> or double-click the selector to rename the selected saved program.</li>
       </ul>

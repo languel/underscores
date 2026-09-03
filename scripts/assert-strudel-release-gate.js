@@ -2,7 +2,9 @@
 // development while refusing public gh-pages deployment until the project has
 // adopted a compatible licence, published corresponding source/build
 // instructions, and recorded upstream notices and any bundled assets.
-const acknowledgement = process.env.UNDERSCORES_AGPL_COMPLIANCE;
+import { readLocalEnv } from "./read-local-env.js";
+
+const acknowledgement = readLocalEnv("UNDERSCORES_AGPL_COMPLIANCE");
 
 if (acknowledgement !== "acknowledged") {
   console.error([

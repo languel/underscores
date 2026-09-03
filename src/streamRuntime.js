@@ -80,6 +80,9 @@ export const normalizeStreamSample = (sample, descriptor = {}, time = nowMs()) =
     normalized.image = image;
     normalized.width = Math.max(0, Number(source.width ?? image.width ?? image.videoWidth) || 0);
     normalized.height = Math.max(0, Number(source.height ?? image.height ?? image.videoHeight) || 0);
+    normalized.alpha = source.alpha === undefined
+      ? descriptor.metadata?.alpha === true
+      : source.alpha === true;
   }
   if (kind === "path") {
     const points = Array.isArray(source.points) ? source.points : Array.isArray(source.value) ? source.value : [];
@@ -121,8 +124,9 @@ const matchesFilter = (descriptor, filter = {}) => {
  * runtime frames cannot.
  */
 export class UnderscoresStreamRegistry {
-  constructor({ now = nowMs } = {}) {
+  constructor({ now = nowMs, getRuntimeSource = null } = {}) {
     this.now = now;
+    this.getRuntimeSource = typeof getRuntimeSource === "function" ? getRuntimeSource : null;
     this.entries = new Map();
     this.listeners = new Set();
   }
@@ -211,6 +215,10 @@ export class UnderscoresStreamRegistry {
       sample: entry.sample,
       snapshot() { return entry.sample; },
       subscribe(listener) { return registry.subscribeStream(descriptor.id, listener); },
+      stream() {
+        const runtimeId = descriptor.metadata?.runtimeId || descriptor.metadata?.mediaSourceId || descriptor.id;
+        return registry.getRuntimeSource?.(runtimeId)?.stream?.() || null;
+      },
       write(sample) {
         if (!descriptor.virtual || !descriptor.writable) throw new Error(`Stream ${descriptor.id} is not a writable virtual stream.`);
         return registry.publish(descriptor.id, sample);

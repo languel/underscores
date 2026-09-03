@@ -195,6 +195,7 @@ export default function ThreeModelPreview({ source, sourceFileId = source?.id, r
         unregister = registerMediaRuntimeSource(runtimeId, {
           element: renderer.domElement,
           kind: "model",
+          alpha: true,
           isPlaying: () => normalizeThreeModelSettings(sourceRef.current?.model).playing,
           stream: () => typeof renderer.domElement.captureStream === "function"
             ? renderer.domElement.captureStream(30)

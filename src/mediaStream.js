@@ -1,5 +1,8 @@
 import { normalizeUnicursalOptions } from "./unicursalPath.js";
 import { inferThreeModelFormat, isThreeModelFile, normalizeThreeModelSettings } from "./threeModel.js";
+import { DEFAULT_MEDIA_KEY, normalizeMediaKey } from "./mediaKeying.js";
+
+export { DEFAULT_MEDIA_KEY, MEDIA_KEY_MODES, normalizeMediaKey } from "./mediaKeying.js";
 
 export const MEDIA_STREAM_KINDS = Object.freeze({
   CAMERA: "camera",
@@ -10,7 +13,7 @@ export const MEDIA_STREAM_KINDS = Object.freeze({
   UNICURSAL: "unicursal",
 });
 
-export const MEDIA_STREAM_VERSION = 8;
+export const MEDIA_STREAM_VERSION = 9;
 // Reserved canvas-source target used by the media panel to request a
 // composition of the complete scene instead of an individual frame.
 export const CANVAS_CAPTURE_TARGET_FRAME_ALL = "__frame_all__";
@@ -54,6 +57,9 @@ export const MEDIA_BLEND_MODES = Object.freeze([
   "color",
   "luminosity",
 ]);
+
+export const MEDIA_COMPOSITE_MODES = Object.freeze(["overlay", "underlay"]);
+export const MEDIA_BACKGROUND_MODES = Object.freeze(["transparent", "theme", "solid"]);
 
 export const normalizeMediaBlendMode = value => MEDIA_BLEND_MODES.includes(String(value)) ? String(value) : "normal";
 
@@ -245,7 +251,11 @@ export const createMediaStreamConfig = (kind = MEDIA_STREAM_KINDS.MEDIA, overrid
     // existing processor connections can be normalized safely.
     media: { url: "", mediaType: "video", fileName: "", loop: true, muted: true, playing: kind === MEDIA_STREAM_KINDS.PREVIEW ? false : true, playbackRate: 1, volume: 1, linkTransport: false, manual: false },
     model: normalizeThreeModelSettings(),
+    compositeMode: "overlay",
+    compositeOpacity: 1,
     blendMode: "normal",
+    backgroundMode: "transparent",
+    key: DEFAULT_MEDIA_KEY,
     canvas: { elementId: "", live: false, background: "theme" },
     output: DEFAULT_OUTPUT,
     holistic: {
@@ -320,7 +330,11 @@ export const normalizeMediaStreamConfig = value => {
     sourceId: cleanString(source.sourceId),
     name: cleanString(source.name, kind === MEDIA_STREAM_KINDS.CAMERA ? "Camera" : kind === MEDIA_STREAM_KINDS.CANVAS ? "Canvas" : kind === MEDIA_STREAM_KINDS.PREVIEW ? "Preview" : kind === MEDIA_STREAM_KINDS.HOLISTIC ? "Holistic" : kind === MEDIA_STREAM_KINDS.UNICURSAL ? "Unicursal portrait" : "Media"),
     enabled: source.enabled !== false,
+    compositeMode: MEDIA_COMPOSITE_MODES.includes(source.compositeMode) ? source.compositeMode : "overlay",
+    compositeOpacity: clamp(source.compositeOpacity, 0, 1, 1),
     blendMode: normalizeMediaBlendMode(source.blendMode),
+    backgroundMode: MEDIA_BACKGROUND_MODES.includes(source.backgroundMode) ? source.backgroundMode : "transparent",
+    key: normalizeMediaKey(source.key),
     mirror: source.mirror === undefined ? kind === MEDIA_STREAM_KINDS.CAMERA : Boolean(source.mirror),
     crop: {
       x: clamp(crop.x, 0, 0.99, DEFAULT_CROP.x),
@@ -562,6 +576,7 @@ export const patchMediaStreamConfig = (value, patch = {}) => {
     crop: { ...current.crop, ...(patch.crop || {}) },
     camera: { ...current.camera, ...(patch.camera || {}) },
     media,
+    key: { ...current.key, ...(patch.key || {}) },
     model: {
       ...current.model,
       ...(patch.model || {}),

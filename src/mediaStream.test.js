@@ -15,6 +15,9 @@ import {
   isMediaSourceElement,
   MEDIA_STREAM_KINDS,
   MEDIA_BLEND_MODES,
+  MEDIA_BACKGROUND_MODES,
+  MEDIA_COMPOSITE_MODES,
+  MEDIA_KEY_MODES,
   MEDIA_BINDING_TYPES,
   normalizeMediaBinding,
   normalizeMediaStreamConfig,
@@ -37,6 +40,13 @@ test("media stream defaults distinguish acquisition and derived stream kinds", (
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.loop, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.playing, true);
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).media.linkTransport, false);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).compositeMode, "overlay");
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).compositeOpacity, 1);
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).blendMode, "normal");
+  assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).backgroundMode, "transparent");
+  assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).key, {
+    mode: "off", color: "#00ff00", threshold: 0.2, softness: 0.08,
+  });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.CANVAS).canvas, { elementId: "", live: false, background: "theme" });
   assert.deepEqual(createMediaStreamConfig(MEDIA_STREAM_KINDS.MEDIA).output, { fps: 30, maxDimension: 0 });
   assert.equal(createMediaStreamConfig(MEDIA_STREAM_KINDS.PREVIEW).sourceId, "");
@@ -97,9 +107,40 @@ test("holistic binding patches remain versioned and nested", () => {
   const current = createMediaStreamConfig("holistic");
   const binding = createMediaBinding("drive-position", { id: "driver-a", targetElementId: "cursor-a" });
   const next = patchMediaStreamConfig(current, { bindings: [binding] });
-  assert.equal(next.version, 8);
+  assert.equal(next.version, 9);
   assert.equal(next.bindings[0].id, "driver-a");
   assert.equal(next.bindings[0].targetElementId, "cursor-a");
+});
+
+test("media composition and key settings normalize and patch independently", () => {
+  const normalized = normalizeMediaStreamConfig({
+    kind: MEDIA_STREAM_KINDS.MEDIA,
+    compositeMode: "sideways",
+    compositeOpacity: 4,
+    backgroundMode: "unknown",
+    blendMode: "not-a-css-mode",
+    key: { mode: "color", color: "#0f0", threshold: -1, softness: 4 },
+  });
+  assert.ok(MEDIA_COMPOSITE_MODES.includes(normalized.compositeMode));
+  assert.ok(MEDIA_BACKGROUND_MODES.includes(normalized.backgroundMode));
+  assert.ok(MEDIA_KEY_MODES.includes(normalized.key.mode));
+  assert.equal(normalized.compositeMode, "overlay");
+  assert.equal(normalized.compositeOpacity, 1);
+  assert.equal(normalized.backgroundMode, "transparent");
+  assert.equal(normalized.blendMode, "normal");
+  assert.deepEqual(normalized.key, {
+    mode: "color", color: "#00ff00", threshold: 0, softness: 1,
+  });
+  const patched = patchMediaStreamConfig(normalized, {
+    compositeMode: "underlay",
+    compositeOpacity: 0.35,
+    key: { mode: "green", softness: 0 },
+  });
+  assert.equal(patched.compositeMode, "underlay");
+  assert.equal(patched.compositeOpacity, 0.35);
+  assert.equal(patched.key.mode, "green");
+  assert.equal(patched.key.color, "#00ff00");
+  assert.equal(patched.key.softness, 0.001);
 });
 
 test("media stream normalization clamps persisted processor and crop settings", () => {

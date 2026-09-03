@@ -8012,6 +8012,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   overflow: hidden;
   pointer-events: none;
 }
+.underscores-media-stream-overlay.underlay { z-index: 0; }
 
 .underscores-collaboration-pointers {
   position: absolute;
@@ -8169,8 +8170,21 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 .underscores-media-stream-frame {
   position: absolute;
   overflow: hidden;
-  background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
+  background: transparent;
   pointer-events: none;
+}
+
+/* Media follows Livecode's compositor contract. Transparent is the useful
+   default for filtered webcam/canvas output; theme/solid opt back into a
+   visible host surface when a source needs one. */
+.underscores-media-stream-frame[data-media-background="theme"] {
+  background: color-mix(in srgb, var(--underscores-panel-bg, var(--island-bg-color)) 24%, transparent);
+}
+.underscores-media-stream-frame[data-media-background="solid"] {
+  background: var(--underscores-panel-bg, var(--island-bg-color));
+}
+.underscores-media-stream-frame.is-model .underscores-three-model-preview {
+  background: transparent;
 }
 
 /* Model previews own camera gestures (Option-drag, trackpad orbit, and
@@ -8244,7 +8258,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
 .underscores-media-surface {
   object-fit: cover;
-  background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
+  background: transparent;
 }
 
 /* Audio previews are a static, deterministic visual proxy. They deliberately
@@ -11549,6 +11563,26 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+.media-stream-panel-composition {
+  margin-top: 8px;
+  padding-top: 7px;
+  border-top: 1px solid var(--underscores-panel-border, var(--border-color));
+}
+.media-stream-panel-composition > summary {
+  cursor: pointer;
+  color: var(--color-secondary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.media-stream-panel-composition-grid {
+  display: grid;
+  gap: 6px;
+  margin-top: 7px;
+}
+.media-stream-panel-composition-grid input[type="range"] { min-width: 0; width: 100%; accent-color: var(--underscores-accent); }
+
 .media-stream-panel-preview-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -11950,6 +11984,12 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   background: transparent;
   cursor: grab;
   touch-action: none;
+}
+
+.media-visual-feature-map-lines line {
+  stroke: var(--underscores-panel-border, rgba(128, 128, 128, 0.42));
+  stroke-width: 3;
+  stroke-linecap: round;
 }
 
 .media-visual-feature-picker-modes {

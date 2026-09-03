@@ -32,6 +32,7 @@ import {
 } from "./unicursalPath.js";
 import { audioWaveformPath, createAudioWaveform } from "./audioWaveform.js";
 import ThreeModelPreview from "./ThreeModelPreview.jsx";
+import { applyMediaKey } from "./mediaKeying.js";
 
 const HOLISTIC_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/holistic.js";
 const HOLISTIC_ASSET_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/holistic/";
@@ -144,6 +145,10 @@ const drawProcessedFrame = (context, canvas, input, config) => {
     return false;
   }
   context.restore();
+  // A real alpha canvas is preserved by the draw above. Keying is an
+  // explicit fallback for webcam/video transports that flatten producer alpha
+  // to opaque RGB on the way into the browser.
+  applyMediaKey(context, canvas.width, canvas.height, config.key);
   return true;
 };
 
@@ -500,6 +505,12 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
       element: runtimeElement,
       mediaElement: media,
       kind: isAudio ? "audio" : "canvas",
+      // A browser webcam/video element is an opaque MediaStream consumer even
+      // when its producer (for example SketchCam's BGRA virtual camera) has
+      // transparent pixels upstream. Canvas and image sources retain their
+      // alpha channel; camera/video sources only become alpha-capable when an
+      // explicit color key has created transparency in our output canvas.
+      alpha: !isAudio && (isImage || source.kind === MEDIA_STREAM_KINDS.CANVAS || sourceRef.current.key?.mode !== "off"),
       isPlaying: () => sourceRef.current.media.playing !== false
         && (sourceRef.current.media.linkTransport !== true || transportRef.current.playing),
       stream: () => {
@@ -560,7 +571,7 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
       cancelAnimationFrame(raf);
       unregister();
     };
-  }, [effectiveMedia.linkTransport, effectiveMedia.playing, effectiveMedia.playbackRate, effectiveMedia.loop, isAudio, isCamera, isGif, isImage, runtimeId, source.enabled, source.id, transportPlaying, url]);
+  }, [effectiveMedia.linkTransport, effectiveMedia.playing, effectiveMedia.playbackRate, effectiveMedia.loop, isAudio, isCamera, isGif, isImage, runtimeId, source.enabled, source.id, source.key?.mode, source.key?.color, source.key?.threshold, source.key?.softness, transportPlaying, url]);
 
   useEffect(() => {
     staticDrawnRef.current = false;
@@ -568,7 +579,7 @@ function ProcessedMediaSource({ source, runtimeId = source.id, playbackOverride 
     lastTransportTimeRef.current = null;
     linkedTransportTimeRef.current = null;
     mediaPlaybackIntentRef.current = null;
-  }, [source.id, url, source.crop.x, source.crop.y, source.crop.width, source.crop.height, source.mirror, source.output.fps, source.output.maxDimension]);
+  }, [source.id, url, source.crop.x, source.crop.y, source.crop.width, source.crop.height, source.mirror, source.output.fps, source.output.maxDimension, source.key?.mode, source.key?.color, source.key?.threshold, source.key?.softness]);
 
   // Keep the native media element in sync with the authored instance volume.
   // Audio fades temporarily own the element's volume, so do not interrupt an
@@ -803,6 +814,7 @@ function CanvasMediaSource({ source, captureCanvasSource, captureRevision }) {
     const unregister = registerMediaRuntimeSource(source.id, {
       element: output,
       kind: "canvas",
+      alpha: true,
       isPlaying: () => sourceRef.current.media.playing !== false,
       stream: () => typeof output.captureStream === "function" ? output.captureStream(sourceRef.current.output.fps) : null,
     });
@@ -957,12 +969,18 @@ function MediaRuntimeCanvasPreview({ sourceId, source = null, className = "", tr
           output.height = input.height;
         }
         const context = output.getContext("2d");
+        if (!context) return;
         context.clearRect(0, 0, output.width, output.height);
         try {
           context.drawImage(input, 0, 0);
         } catch {
           // A source may be replaced between animation frames.
         }
+        // Source-level keying is applied while publishing the runtime canvas
+        // (so connected processors receive the keyed frame). Apply the
+        // instance key here as well so a preview can override key settings
+        // without rebuilding the shared source runtime.
+        applyMediaKey(context, output.width, output.height, source?.key);
         lastFrameTimeRef.current = frameTime;
       }
       // A paused instance holds its last painted frame. Keep polling only
@@ -972,7 +990,7 @@ function MediaRuntimeCanvasPreview({ sourceId, source = null, className = "", tr
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [sourceId, source?.media?.linkTransport, source?.media?.playing, transportPlaying]);
+  }, [sourceId, source?.key?.mode, source?.key?.color, source?.key?.threshold, source?.key?.softness, source?.media?.linkTransport, source?.media?.playing, transportPlaying]);
   return <canvas ref={canvasRef} className={`underscores-media-surface ${className}`.trim()} data-media-preview-source-id={sourceId} />;
 }
 
@@ -1469,7 +1487,7 @@ function PreviewChrome({ config, source, sources, onPatch, onFocusSource }) {
   </div>;
 }
 
-export default function MediaStreamOverlay({ elements, appState, sources = [], onResults, onPathFrame, onPatch, onFocusSource, transportTime = 0, transportPlaying = false, arrangementRuntime = null }) {
+export default function MediaStreamOverlay({ elements, appState, sources = [], onResults, onPathFrame, onPatch, onFocusSource, transportTime = 0, transportPlaying = false, arrangementRuntime = null, layer = "overlay" }) {
   const [segmentationDemandRevision, setSegmentationDemandRevision] = useState(0);
   useEffect(() => subscribeMediaStreamRuntime(detail => {
     if (detail.type === "segmentation-demand") setSegmentationDemandRevision(value => value + 1);
@@ -1481,8 +1499,13 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   const objects = (elements || []).filter(element => {
     if (!isMediaStreamElement(element)) return false;
     const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
-    if (config.kind === MEDIA_STREAM_KINDS.PREVIEW) return shouldRenderMediaStream(element);
-    return [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(config.kind)
+    if (config.kind === MEDIA_STREAM_KINDS.PREVIEW) {
+      if (!shouldRenderMediaStream(element)) return false;
+      const underlay = config.compositeMode === "underlay";
+      return layer === "underlay" ? underlay : !underlay;
+    }
+    return layer !== "underlay"
+      && [MEDIA_STREAM_KINDS.HOLISTIC, MEDIA_STREAM_KINDS.UNICURSAL].includes(config.kind)
       && (shouldRenderMediaStream(element) || shouldProcessMediaStream(element));
   });
   const sourceIds = useMemo(() => new Set(sources.map(source => source.id)), [sources]);
@@ -1503,7 +1526,7 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
   ].filter(Boolean)), [elements, segmentationDemandRevision]);
 
   if (!objects.length) return null;
-  return <div className="underscores-media-stream-overlay" aria-hidden="true">
+  return <div className={`underscores-media-stream-overlay ${layer}`} aria-hidden="true">
     {objects.map((element, layerIndex) => {
     const config = normalizeMediaStreamConfig(element.customData.underscoresMediaStream);
       const arranged = arrangementRuntime?.get?.(element.id) || null;
@@ -1526,7 +1549,13 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
               loop: arranged.clip?.timing?.loopMode === "loop",
               playbackRate: arranged.clip?.timing?.rate || 1,
             } : {}),
-          } }
+          },
+          compositeMode: config.compositeMode,
+          compositeOpacity: config.compositeOpacity,
+          blendMode: config.blendMode,
+          backgroundMode: config.backgroundMode,
+          key: config.key,
+        }
         : null;
       const visible = shouldRenderMediaStream(element) && (!arranged || arranged.active);
       const instanceTransportTime = arranged ? arranged.state?.localTime || 0 : transportTime;
@@ -1542,11 +1571,14 @@ export default function MediaStreamOverlay({ elements, appState, sources = [], o
         opacity,
         visibility: visible ? "visible" : "hidden",
         zIndex: layerIndex,
-        ...(config.kind === MEDIA_STREAM_KINDS.PREVIEW ? { mixBlendMode: config.blendMode } : {}),
+        ...(config.kind === MEDIA_STREAM_KINDS.PREVIEW ? {
+          mixBlendMode: config.blendMode === "normal" ? undefined : config.blendMode,
+        } : {}),
         transform: `rotate(${Number(element.angle) || 0}rad)`,
         transformOrigin: "center",
       };
-      return <div key={element.id} className={`underscores-media-stream-frame is-${config.kind} ${isModelPreview ? "is-model" : ""} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-underscores-media-stream-id={element.id} style={style}>
+      style.opacity *= Math.max(0, Math.min(1, Number(config.compositeOpacity) || 0));
+      return <div key={element.id} className={`underscores-media-stream-frame is-${config.kind} ${isModelPreview ? "is-model" : ""} ${selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW ? "selected" : ""}`} data-underscores-media-stream-id={element.id} data-media-background={config.backgroundMode} style={style}>
         {selected && config.kind === MEDIA_STREAM_KINDS.PREVIEW && <PreviewChrome
           config={config}
           source={previewSource}
