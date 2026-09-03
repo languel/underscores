@@ -8686,6 +8686,10 @@ function App() {
   const handleCanvasPointerDown = (e) => {
     if (!excalidrawAPI) return;
     if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    // A Three.js model preview owns its pointer gesture (orbit, pan, or
+    // zoom). Do not let the canvas capture handler start a drawing or
+    // selection session before the model's control listener receives it.
+    if (e.target?.closest?.(".underscores-media-stream-frame.is-model")) return;
     if (forwardCanvasPointerToLivecode(e.nativeEvent || e)) {
       e.preventDefault();
       e.stopPropagation();
@@ -8958,6 +8962,7 @@ function App() {
 
   const handleCanvasPointerMove = (e) => {
     if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (e.target?.closest?.(".underscores-media-stream-frame.is-model")) return;
     if (forwardCanvasPointerToLivecode(e.nativeEvent || e)) {
       e.preventDefault();
       e.stopPropagation();
@@ -10975,6 +10980,74 @@ function App() {
     return root.querySelector(".livecode-node-output canvas, canvas, iframe") || root;
   };
 
+  const resolveLivecodeWheelPoint = (nativeEvent, coordinates = null) => {
+    // The global pointer tracks overlay surfaces too. The Excalidraw-only
+    // pointer ref can be stale while the cursor is over a Livecode node, which
+    // is exactly when a browser may retarget a pinch sample to document/body.
+    const fallbackPoint = lastPointerRef.current || lastCanvasPointerRef.current;
+    const rawX = coordinates?.clientX ?? nativeEvent?.clientX;
+    const rawY = coordinates?.clientY ?? nativeEvent?.clientY;
+    const clientX = Number.isFinite(Number(rawX)) ? Number(rawX) : fallbackPoint?.[0];
+    const clientY = Number.isFinite(Number(rawY)) ? Number(rawY) : fallbackPoint?.[1];
+    return {
+      clientX: Number.isFinite(Number(clientX)) ? Number(clientX) : null,
+      clientY: Number.isFinite(Number(clientY)) ? Number(clientY) : null,
+    };
+  };
+
+  const dispatchWheelToLivecodeTarget = (target, nativeEvent, clientX, clientY) => {
+    if (!target || !nativeEvent) return false;
+    const forwarded = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: window,
+      deltaX: nativeEvent.deltaX || 0,
+      deltaY: nativeEvent.deltaY || 0,
+      deltaZ: nativeEvent.deltaZ || 0,
+      deltaMode: nativeEvent.deltaMode || 0,
+      screenX: nativeEvent.screenX || 0,
+      screenY: nativeEvent.screenY || 0,
+      clientX: clientX || 0,
+      clientY: clientY || 0,
+      ctrlKey: Boolean(nativeEvent.ctrlKey),
+      altKey: Boolean(nativeEvent.altKey),
+      shiftKey: Boolean(nativeEvent.shiftKey),
+      metaKey: Boolean(nativeEvent.metaKey),
+      button: nativeEvent.button ?? 0,
+      buttons: nativeEvent.buttons ?? 0,
+    });
+    Object.defineProperty(forwarded, "__underscoresForwarded", { value: true });
+    target.dispatchEvent(forwarded);
+    return true;
+  };
+
+  const dispatchGestureToLivecodeTarget = (target, nativeEvent, clientX, clientY) => {
+    if (!target || !nativeEvent) return false;
+    // Safari's GestureEvent constructor is not available in every embedded
+    // browser. A marked Event with the same public fields is sufficient for
+    // the local Three controller and keeps the retargeting path portable.
+    const forwarded = new Event(nativeEvent.type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+    });
+    Object.defineProperties(forwarded, {
+      scale: { value: nativeEvent.scale, enumerable: true },
+      clientX: { value: clientX || 0, enumerable: true },
+      clientY: { value: clientY || 0, enumerable: true },
+      screenX: { value: nativeEvent.screenX || 0, enumerable: true },
+      screenY: { value: nativeEvent.screenY || 0, enumerable: true },
+      ctrlKey: { value: Boolean(nativeEvent.ctrlKey), enumerable: true },
+      altKey: { value: Boolean(nativeEvent.altKey), enumerable: true },
+      shiftKey: { value: Boolean(nativeEvent.shiftKey), enumerable: true },
+      metaKey: { value: Boolean(nativeEvent.metaKey), enumerable: true },
+      __underscoresForwarded: { value: true },
+    });
+    target.dispatchEvent(forwarded);
+    return true;
+  };
+
   const dispatchPointerToLivecode = (target, nativeEvent) => {
     if (!target || !nativeEvent) return false;
     const forwarded = new PointerEvent(nativeEvent.type, {
@@ -11040,8 +11113,7 @@ function App() {
 
   const forwardCanvasWheelToLivecode = (nativeEvent, coordinates = null) => {
     if (!nativeEvent || isForwardedCanvasGesture(nativeEvent)) return false;
-    const clientX = coordinates?.clientX ?? nativeEvent.clientX;
-    const clientY = coordinates?.clientY ?? nativeEvent.clientY;
+    const { clientX, clientY } = resolveLivecodeWheelPoint(nativeEvent, coordinates);
     const hit = livecodeNodeAtCanvasPointer(clientX, clientY);
     if (!hit || getLivecodePointerMode(normalizeLivecodeNode(hit.customData?.underscoresLivecode)) !== "node") return false;
     const target = getLivecodeCanvasInputTarget(hit);
@@ -11052,27 +11124,7 @@ function App() {
       return true;
     }
     if (!target) return true;
-    const forwarded = new WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-      view: window,
-      deltaX: nativeEvent.deltaX || 0,
-      deltaY: nativeEvent.deltaY || 0,
-      deltaZ: nativeEvent.deltaZ || 0,
-      deltaMode: nativeEvent.deltaMode || 0,
-      screenX: nativeEvent.screenX || 0,
-      screenY: nativeEvent.screenY || 0,
-      clientX: clientX || 0,
-      clientY: clientY || 0,
-      ctrlKey: Boolean(nativeEvent.ctrlKey),
-      altKey: Boolean(nativeEvent.altKey),
-      shiftKey: Boolean(nativeEvent.shiftKey),
-      metaKey: Boolean(nativeEvent.metaKey),
-    });
-    Object.defineProperty(forwarded, "__underscoresForwarded", { value: true });
-    target.dispatchEvent(forwarded);
-    return true;
+    return dispatchWheelToLivecodeTarget(target, nativeEvent, clientX, clientY);
   };
   forwardCanvasWheelToLivecodeRef.current = forwardCanvasWheelToLivecode;
 
@@ -11140,8 +11192,7 @@ function App() {
   const forwardLivecodeWheel = (nativeEvent, coordinates = null) => {
     const canvas = interactiveExcalidrawCanvas();
     if (!canvas || isForwardedCanvasGesture(nativeEvent)) return false;
-    const clientX = coordinates?.clientX ?? nativeEvent.clientX;
-    const clientY = coordinates?.clientY ?? nativeEvent.clientY;
+    const { clientX, clientY } = resolveLivecodeWheelPoint(nativeEvent, coordinates);
     const forwarded = new WheelEvent("wheel", {
       bubbles: true,
       cancelable: true,
@@ -11170,6 +11221,10 @@ function App() {
   const handleCanvasWheelCapture = event => {
     const nativeEvent = event.nativeEvent || event;
     if (isForwardedCanvasGesture(nativeEvent)) return;
+    // A Three.js Livecode canvas has its own wheel/gesture controller. Let a
+    // directly hit renderer receive the trusted event instead of attempting a
+    // scene-coordinate round trip through the Excalidraw underlay first.
+    if (event.target?.closest?.(".underscores-three-canvas")) return;
     if (forwardCanvasWheelToLivecode(nativeEvent)) {
       event.preventDefault();
       event.stopPropagation();
@@ -11203,18 +11258,38 @@ function App() {
       }
       const targetInsideCanvas = targetNode ? container.contains(targetNode) : false;
       const rect = container.getBoundingClientRect();
-      const fallbackPoint = lastCanvasPointerRef.current;
-      const clientX = Number.isFinite(Number(event.clientX)) ? Number(event.clientX) : fallbackPoint?.[0];
-      const clientY = Number.isFinite(Number(event.clientY)) ? Number(event.clientY) : fallbackPoint?.[1];
-      const pointInsideCanvas = Number.isFinite(clientX)
+      let { clientX, clientY } = resolveLivecodeWheelPoint(event);
+      let pointInsideCanvas = Number.isFinite(clientX)
         && Number.isFinite(clientY)
         && clientX >= rect.left
         && clientX <= rect.right
         && clientY >= rect.top
         && clientY <= rect.bottom;
+      // Chromium can retarget a pinch stream to the document with a stale
+      // (often 0,0) wheel coordinate. The last trusted pointer position is a
+      // better hit-test point for the underlay in that case.
+      if (!pointInsideCanvas && lastPointerRef.current) {
+        [clientX, clientY] = lastPointerRef.current;
+        pointInsideCanvas = clientX >= rect.left
+          && clientX <= rect.right
+          && clientY >= rect.top
+          && clientY <= rect.bottom;
+      }
       const pointElements = pointInsideCanvas ? document.elementsFromPoint?.(clientX, clientY) || [] : [];
       if (pointElements.some(isLivecodeEditorTarget)) {
         if (event.ctrlKey) event.preventDefault();
+        return;
+      }
+      const targetThreeCanvas = targetNode?.closest?.(".underscores-three-canvas");
+      const pointThreeCanvas = pointElements.find(element => element.matches?.(".underscores-three-canvas"));
+      // Trackpad pinch is exposed as a Ctrl/Meta wheel gesture. When the
+      // browser has targeted the Excalidraw underlay (or document) instead of
+      // the underlay Livecode sibling, route exactly one copy to its renderer
+      // and stop the original before Excalidraw or page zoom can consume it.
+      if ((event.ctrlKey || event.metaKey) && pointThreeCanvas && !targetThreeCanvas) {
+        event.preventDefault();
+        event.stopPropagation();
+        dispatchWheelToLivecodeTarget(pointThreeCanvas, event, clientX, clientY);
         return;
       }
       const pointLivecodeNode = pointInsideCanvas && (
@@ -11236,11 +11311,41 @@ function App() {
       }
     };
     document.addEventListener("wheel", preventLivecodePageZoom, { capture: true, passive: false });
-    return () => document.removeEventListener("wheel", preventLivecodePageZoom, { capture: true });
+    const retargetLivecodeGesture = event => {
+      if (isForwardedCanvasGesture(event)) return;
+      const container = document.getElementById("canvas-container");
+      if (!container) return;
+      const targetNode = event.target && typeof event.target.nodeType === "number" ? event.target : null;
+      // A gesture targeted at a source viewer or a directly hit Livecode
+      // renderer already has a native controller; do not deliver it twice.
+      if (targetNode?.closest?.(".underscores-three-canvas, .underscores-three-model-canvas")) return;
+      const rect = container.getBoundingClientRect();
+      const { clientX, clientY } = resolveLivecodeWheelPoint(event);
+      if (!Number.isFinite(clientX) || !Number.isFinite(clientY)
+        || clientX < rect.left || clientX > rect.right
+        || clientY < rect.top || clientY > rect.bottom) return;
+      const element = livecodeNodeAtCanvasPointerRef.current?.(clientX, clientY);
+      if (!element || getLivecodePointerMode(normalizeLivecodeNode(element.customData?.underscoresLivecode)) !== "node") return;
+      const target = getLivecodeCanvasInputTarget(element);
+      if (!target?.matches?.(".underscores-three-canvas")) return;
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      dispatchGestureToLivecodeTarget(target, event, clientX, clientY);
+    };
+    ["gesturestart", "gesturechange", "gestureend"].forEach(type => {
+      document.addEventListener(type, retargetLivecodeGesture, { capture: true, passive: false });
+    });
+    return () => {
+      document.removeEventListener("wheel", preventLivecodePageZoom, { capture: true });
+      ["gesturestart", "gesturechange", "gestureend"].forEach(type => {
+        document.removeEventListener(type, retargetLivecodeGesture, { capture: true });
+      });
+    };
   }, []);
 
   const handleCanvasPointerUp = (e) => {
     if (isForwardedCanvasGesture(e.nativeEvent || e)) return;
+    if (e.target?.closest?.(".underscores-media-stream-frame.is-model")) return;
     if (forwardCanvasPointerToLivecode(e.nativeEvent || e)) {
       e.preventDefault();
       e.stopPropagation();
@@ -14899,10 +15004,10 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and the shared __ bridge. loadModel safely loads OBJ, glTF/GLB, and USD/USDZ and returns a scene plus animation clips. They do not depend on Manim. Three starters are unit-cube, lit-torus-knot, orbiting-spheres, parameter-dancing-lights, model-viewer-gltf, model-viewer-animation-morph, model-viewer-obj-teapot, mediapipe-unicursal-3d, and mediapipe-schlemmer-3d; omit example for a blank source. The MediaPipe starters read named Holistic landmarks and use deterministic fallbacks when no completed frame is available. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", example: "model-viewer-gltf", name: "Three.js model", width: 640, height: 420, transportMode: "free", view: "preview", running: true } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and the shared __ bridge. loadModel safely loads OBJ, glTF/GLB, USD/USDZ, or ZIP archives containing an OBJ and returns a scene plus animation clips. They do not depend on Manim. Three starters are unit-cube, lit-torus-knot, orbiting-spheres, parameter-dancing-lights, model-viewer-gltf, model-viewer-animation-morph, model-viewer-obj-teapot, mediapipe-unicursal-3d, and mediapipe-schlemmer-3d; omit example for a blank source. The MediaPipe starters read named Holistic landmarks and use deterministic fallbacks when no completed frame is available. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", example: "model-viewer-gltf", name: "Three.js model", width: 640, height: 420, transportMode: "free", view: "preview", running: true } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel", "/code strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
-    { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and __. loadModel supports OBJ, glTF/GLB, and USD/USDZ, returning scene and animation clips. The Example menu includes Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, glTF model viewer, Animated glTF blendshape, MIT OBJ teapot, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D); the last two read Holistic landmarks and fall back to deterministic geometry when no frame is available. The node surface supports local orbit, pan, zoom, and keyboard camera controls." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
+    { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and __. loadModel supports OBJ, glTF/GLB, USD/USDZ, and ZIP archives containing an OBJ, returning scene and animation clips. The Example menu includes Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, glTF model viewer, Animated glTF blendshape, a CORS-friendly Three.js Walt Head OBJ, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D); the last two read Holistic landmarks and fall back to deterministic geometry when no frame is available. The node surface supports local orbit, pan, zoom, and keyboard camera controls." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play", "/code playcore", "/code play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
     { id: "livecode.node.create.markdown", name: "Create Markdown Livecode Node /live markdown", aliases: ["/live markdown", "/live md", "/code markdown", "/code md"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.markdown }) },
     { id: "livecode.node.create.latex", name: "Create LaTeX Livecode Node /live latex", aliases: ["/live latex", "/live tex", "/code latex", "/code tex"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.latex }) },
@@ -14985,7 +15090,7 @@ function App() {
     { id: "livecode.node.migrate", name: "Migrate p5 or Play Core Host to Livecode Node", aliases: ["Migrate to Livecode Node"], category: "Canvas", action: () => { const target = getSelectedElements().find(element => isP5FrameElement(element) || isPlayCoreFrameElement(element)); if (!target) throw new Error("Select a p5 or Play Core host first."); return migrateLegacyHostToLivecodeNode(target.id); } },
     { id: "media.camera.create", name: "Create Camera Input", aliases: ["/camera", "webcam stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.CAMERA, args) },
     { id: "media.input.create", name: "Create Media Input", aliases: ["/media", "image stream", "video stream"], category: "Media Streams", action: (_api, args) => createMediaInputSource(MEDIA_STREAM_KINDS.MEDIA, { ...args, media: { url: args?.url || args?.media?.url || "", ...(args?.media || {}) } }) },
-    { id: "media.model.create", name: "Create 3D Model Input /model", aliases: ["/model", "/3d model", "model input"], category: "Media Streams", args: { url: "OBJ, glTF, GLB, or USD URL", name: "string?", example: "damaged-helmet|animated-morph-cube|mit-teapot?" }, ai: { expose: true, description: "Create a Media source for a local or CORS-enabled OBJ, glTF/GLB, or USD/USDZ model. Omit url and choose a standard Khronos or MIT example by id. The Media panel exposes glTF animation and blendshape controls.", example: { example: "animated-morph-cube" } }, action: (_api, args = {}) => {
+    { id: "media.model.create", name: "Create 3D Model Input /model", aliases: ["/model", "/3d model", "model input"], category: "Media Streams", args: { url: "OBJ, glTF, GLB, USD, or ZIP containing OBJ URL", name: "string?", example: "damaged-helmet|animated-morph-cube|mit-teapot|stanford-bunny-zip|three-walt-head?" }, ai: { expose: true, description: "Create a Media source for a local or CORS-enabled OBJ, glTF/GLB, USD/USDZ, or ZIP containing an OBJ. Omit url and choose a standard Khronos, GitHub Utah Teapot, Stanford Bunny, or Three.js example by id. The Media panel exposes glTF animation and blendshape controls.", example: { example: "animated-morph-cube" } }, action: (_api, args = {}) => {
       const example = args.example ? getThreeModelExample(args.example) : null;
       const url = String(args.url || example?.url || "").trim();
       if (!url) throw new Error(`Provide a model URL or one of: ${THREE_MODEL_EXAMPLES.map(item => item.id).join(", ")}.`);
@@ -19489,7 +19594,12 @@ function App() {
   const createLivecodeCanvasNode = (args = {}) => {
     const api = excalidrawAPIRef.current;
     if (!api) throw new Error("The canvas is not ready.");
-    const requestedKind = args.kind || (isPublicSafeBuild ? LIVECODE_KINDS.p5 : undefined);
+    // Keep the generic creator aligned with the first available kind in the
+    // panel selector. Explicit slash commands and kind-specific buttons still
+    // pass their requested kind directly.
+    const defaultKind = LIVECODE_KIND_ORDER.find(id => !isPublicSafeBuild || id !== LIVECODE_KINDS.strudel)
+      || LIVECODE_KINDS.p5;
+    const requestedKind = args.kind || defaultKind;
     if (isPublicSafeBuild && requestedKind === LIVECODE_KINDS.strudel) {
       setLivecodeStatus("Strudel is omitted from this student build.");
       return null;
@@ -24891,7 +25001,7 @@ function App() {
       || null;
     if (!nodeElement) return <div className="scene-panel-empty">
       <p>Create a self-contained Livecode Node to edit it here or directly on the canvas.</p>
-      <button type="button" className="palette-action-btn primary" onClick={() => createLivecodeCanvasNode({ kind: isPublicSafeBuild ? LIVECODE_KINDS.p5 : LIVECODE_KINDS.strudel })}>Create Livecode Node</button>
+      <button type="button" className="palette-action-btn primary" onClick={() => createLivecodeCanvasNode()}>Create Livecode Node</button>
     </div>;
     const node = normalizeLivecodeNode(nodeElement.customData?.underscoresLivecode);
     const shaderSettings = node.kind === LIVECODE_KINDS.shader
@@ -31662,7 +31772,7 @@ function App() {
               onPointerDown={event => {
                 event.preventDefault();
                 event.stopPropagation();
-                createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel });
+                createLivecodeCanvasNode();
                 setCustomContextMenu(null);
               }}
               className="custom-floating-context-menu-btn"

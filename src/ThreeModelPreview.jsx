@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { createThreeCameraControls } from "./threeCameraControls.js";
 import { getMediaSessionFileUrl, registerMediaRuntimeSource, subscribeMediaStreamRuntime } from "./mediaStreamRuntime.js";
-import { inferThreeModelFormat, loadThreeModel, normalizeThreeModelSettings } from "./threeModel.js";
+import { fitThreeModelRootToFrame, inferThreeModelFormat, loadThreeModel, normalizeThreeModelSettings } from "./threeModel.js";
 
 const publishStatus = (elementId, kind, message) => {
   if (typeof window === "undefined" || !elementId) return;
@@ -59,16 +59,6 @@ const collectMorphTargets = root => {
     });
   });
   return targets;
-};
-
-const fitModelToFrame = root => {
-  const bounds = new THREE.Box3().setFromObject(root);
-  if (bounds.isEmpty()) return;
-  const center = bounds.getCenter(new THREE.Vector3());
-  const size = bounds.getSize(new THREE.Vector3());
-  const largest = Math.max(size.x, size.y, size.z, 0.001);
-  root.position.sub(center);
-  root.scale.setScalar(2.4 / largest);
 };
 
 const applyMorphTargets = (morphTargets, settings) => {
@@ -195,7 +185,7 @@ export default function ThreeModelPreview({ source, sourceFileId = source?.id, r
         const loaded = await loadThreeModel(url, { format });
         if (disposed) { disposeObject(loaded.root); return; }
         root = loaded.root;
-        fitModelToFrame(root);
+        fitThreeModelRootToFrame(root);
         scene.add(root);
         animations.push(...loaded.animations);
         morphTargets.push(...collectMorphTargets(root));
@@ -211,8 +201,10 @@ export default function ThreeModelPreview({ source, sourceFileId = source?.id, r
             : null,
         });
         runtimeRef.current = { runtimeId, renderer, scene, camera, root, mixer, animations, morphTargets };
-        onModelInfo?.({ format: loaded.format, animations: animations.map(clip => ({ name: clip.name, duration: clip.duration })), morphTargets: morphTargets.map(target => ({ id: target.id, name: target.name, meshName: target.meshName })) });
-        publishStatus(sourceFileId, "success", `${loaded.format.toUpperCase()} model loaded.`);
+        onModelInfo?.({ format: loaded.format, sourceFormat: loaded.sourceFormat, archiveEntry: loaded.archiveEntry, animations: animations.map(clip => ({ name: clip.name, duration: clip.duration })), morphTargets: morphTargets.map(target => ({ id: target.id, name: target.name, meshName: target.meshName })) });
+        publishStatus(sourceFileId, "success", loaded.sourceFormat === "zip"
+          ? `OBJ model loaded from ZIP (${loaded.archiveEntry || "archive entry"}).`
+          : `${loaded.format.toUpperCase()} model loaded.`);
         host.replaceChildren(renderer.domElement);
         resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(host);
@@ -240,7 +232,9 @@ export default function ThreeModelPreview({ source, sourceFileId = source?.id, r
         };
         frameRequest = window.requestAnimationFrame(paint);
       } catch (error) {
-        if (!disposed) publishStatus(sourceFileId, "error", error?.message || "3D model could not be loaded.");
+        if (!disposed) {
+          publishStatus(sourceFileId, "error", error?.message || "3D model could not be loaded.");
+        }
       }
     };
     void start();

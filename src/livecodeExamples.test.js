@@ -44,6 +44,9 @@ test("Three.js exposes standalone geometry and motion starters", () => {
   }
   assert.match(examples.find(example => example.id === "unit-cube").source, /BoxGeometry\(1, 1, 1\)/);
   assert.match(examples.find(example => example.id === "lit-torus-knot").source, /TorusKnotGeometry/);
+  const objViewer = examples.find(example => example.id === "model-viewer-obj-teapot");
+  assert.match(objViewer.source, /WaltHead\.obj/);
+  assert.match(objViewer.source, /automatically frames loaded models/);
   const dancingLights = examples.find(example => example.id === "parameter-dancing-lights");
   assert.match(dancingLights.source, /@param count/);
   assert.match(dancingLights.source, /__\.params\.energy/);

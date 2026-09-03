@@ -226,7 +226,7 @@ tick(({ time }) => {
     label: "Models · glTF viewer",
     name: "glTF model viewer",
     source: `// loadModel is the safe Three.js model loader. It accepts CORS-enabled
-// OBJ, glTF/GLB, and USD/USDZ URLs and returns { scene, animations }.
+// OBJ, glTF/GLB, USD/USDZ, or ZIP URLs containing an OBJ and returns { scene, animations }.
 const asset = await loadModel(${JSON.stringify(THREE_MODEL_EXAMPLES.find(example => example.id === "damaged-helmet")?.url || "")});
 scene.add(asset.scene);
 scene.add(new THREE.HemisphereLight(0x8bd5ff, 0x101522, 1.8));
@@ -260,9 +260,11 @@ tick(({ delta, time }) => {
   },
   {
     id: "model-viewer-obj-teapot",
-    label: "Models · OBJ teapot",
-    name: "MIT OBJ teapot",
-    source: `const asset = await loadModel(${JSON.stringify(THREE_MODEL_EXAMPLES.find(example => example.id === "mit-teapot")?.url || "")});
+    label: "Models · Walt Head OBJ",
+    name: "Walt Head · OBJ",
+    source: `// A CORS-enabled OBJ sample from the Three.js examples.
+const asset = await loadModel(${JSON.stringify(THREE_MODEL_EXAMPLES.find(example => example.id === "three-walt-head")?.url || "")});
+// ThreeFrame automatically frames loaded models with the default camera.
 scene.add(asset.scene);
 scene.add(new THREE.HemisphereLight(0x8bd5ff, 0x111827, 2));
 const light = new THREE.DirectionalLight(0xffffff, 3);

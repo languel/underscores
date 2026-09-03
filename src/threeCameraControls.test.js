@@ -4,10 +4,28 @@ import * as THREE from "three";
 import {
   classifyThreeWheelGesture,
   createThreeCameraControls,
+  fitThreeCameraToObjects,
   isThreeCameraResetShortcut,
   resolveThreePointerDragMode,
   resolveThreeKeyboardMove,
 } from "./threeCameraControls.js";
+
+test("Three.js model framing centers large, offset objects and derives a usable zoom range", () => {
+  const camera = new THREE.PerspectiveCamera(45, 1, 0.01, 1000);
+  camera.position.set(0, 0, 4);
+  const model = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2));
+  model.position.set(0, 36, 0);
+  const framing = fitThreeCameraToObjects({ camera, objects: [model] });
+  assert.ok(framing);
+  assert.deepEqual(framing.center.toArray(), [0, 36, 0]);
+  assert.ok(Math.abs(camera.position.x) < 1e-9);
+  assert.ok(Math.abs(camera.position.y - 36) < 1e-9);
+  assert.ok(camera.position.z > 0);
+  assert.ok(camera.far > camera.near);
+  assert.ok(camera.far > framing.maxRadius);
+  assert.ok(framing.minRadius > framing.radius);
+  assert.ok(framing.maxRadius > framing.distance);
+});
 
 test("Three.js camera controls report whether a frame needs repainting", () => {
   const previousWindow = globalThis.window;
@@ -85,4 +103,34 @@ test("Three.js camera wheel streams distinguish trackpad orbit, pan, and zoom", 
   assert.equal(classifyThreeWheelGesture({ deltaMode: 0, deltaX: 0, deltaY: 4, shiftKey: true }), "pan");
   assert.equal(classifyThreeWheelGesture({ deltaMode: 0, deltaX: 0, deltaY: 4, ctrlKey: true }), "zoom");
   assert.equal(classifyThreeWheelGesture({ deltaMode: 1, deltaX: 0, deltaY: 3 }), "zoom");
+});
+
+test("Three.js camera accepts WebKit GestureEvent pinch zoom", () => {
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  const listeners = new Map();
+  const canvas = {
+    style: {},
+    tabIndex: -1,
+    setAttribute() {},
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    removeEventListener(type) { listeners.delete(type); },
+    focus() {},
+  };
+  globalThis.window = { addEventListener() {}, removeEventListener() {} };
+  globalThis.document = { activeElement: null };
+  try {
+    const camera = new THREE.PerspectiveCamera();
+    camera.position.set(0, 0, 4);
+    const controls = createThreeCameraControls({ canvas, camera });
+    listeners.get("gesturestart")({ scale: 1, preventDefault() {}, stopPropagation() {} });
+    listeners.get("gesturechange")({ scale: 2, preventDefault() {}, stopPropagation() {} });
+    controls.update(1 / 60);
+    assert.ok(Math.abs(camera.position.length() - 2) < 1e-9);
+    listeners.get("gestureend")({ preventDefault() {}, stopPropagation() {} });
+    controls.dispose();
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
 });

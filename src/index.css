@@ -4205,6 +4205,20 @@ body .excalidraw .sidebar {
   touch-action: pan-x pan-y;
 }
 
+/* Three.js uses the browser's trackpad pinch stream as a camera gesture. The
+   generic Livecode surface opts into native panning so editors can scroll,
+   but that restriction prevents a pinch from reaching the Three canvas on
+   some WebKit/Chromium paths. Keep the camera surface's gesture negotiation
+   open; its wheel handler still cancels page zoom and maps Ctrl/Meta pinch to
+   camera zoom. */
+.underscores-livecode-node[data-livecode-kind="three"][data-livecode-pointer-mode="node"] {
+  touch-action: auto;
+}
+
+.underscores-livecode-node[data-livecode-kind="three"][data-livecode-pointer-mode="node"] .underscores-three-canvas {
+  touch-action: auto;
+}
+
 .underscores-livecode-node[data-livecode-pointer-mode="canvas"] {
   pointer-events: none;
   touch-action: none;
@@ -8059,13 +8073,29 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
 }
 
-.underscores-three-model-canvas { filter: none !important; }
+.underscores-three-model-canvas {
+  filter: none !important;
+  /* The canvas remains focusable for keyboard camera controls, but the
+     browser's native focus ring reads like a persistent selection frame. */
+  outline: none;
+}
 
 .underscores-media-stream-frame {
   position: absolute;
   overflow: hidden;
   background: var(--underscores-canvas-bg, var(--color-canvas-background, #08090a));
   pointer-events: none;
+}
+
+/* Model previews own camera gestures (Option-drag, trackpad orbit, and
+   wheel zoom). Keep other media previews transparent to Excalidraw while
+   opting this one surface back into hit testing. */
+.underscores-media-stream-frame.is-model,
+.underscores-media-stream-frame.is-model .underscores-media-stream-content,
+.underscores-media-stream-frame.is-model .underscores-three-model-preview,
+.underscores-media-stream-frame.is-model .underscores-three-model-host,
+.underscores-media-stream-frame.is-model .underscores-three-model-canvas {
+  pointer-events: auto;
 }
 
 .underscores-media-stream-frame.is-preview.selected { overflow: visible; }

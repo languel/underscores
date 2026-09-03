@@ -465,7 +465,7 @@ const SourceDetail = ({ source, onPatch, onCreatePreview, onAssignPreview, canAs
   </label>
   {children}
   {isModel && <div className="media-stream-panel-model-controls" role="group" aria-label="3D model controls">
-    <div className="media-stream-panel-note">{modelInfo?.format ? `${modelInfo.format.toUpperCase()} model` : "Loading 3D model…"}{modelInfo?.animations?.length ? ` · ${modelInfo.animations.length} animation${modelInfo.animations.length === 1 ? "" : "s"}` : ""}{modelInfo?.morphTargets?.length ? ` · ${modelInfo.morphTargets.length} morph target${modelInfo.morphTargets.length === 1 ? "" : "s"}` : ""}</div>
+    <div className="media-stream-panel-note">{modelInfo?.format ? `${modelInfo.sourceFormat === "zip" ? "ZIP → " : ""}${modelInfo.format.toUpperCase()} model` : "Loading 3D model…"}{modelInfo?.archiveEntry ? ` · ${modelInfo.archiveEntry}` : ""}{modelInfo?.animations?.length ? ` · ${modelInfo.animations.length} animation${modelInfo.animations.length === 1 ? "" : "s"}` : ""}{modelInfo?.morphTargets?.length ? ` · ${modelInfo.morphTargets.length} morph target${modelInfo.morphTargets.length === 1 ? "" : "s"}` : ""}</div>
     <label className="media-stream-panel-field">
       <span>Example</span>
       <select value="" onChange={event => {
@@ -800,7 +800,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
     {missingFileCount > 0 && <div className="media-stream-panel-note media-stream-panel-missing-summary" role="status">
       <strong>{missingFileCount} local {missingFileCount === 1 ? "file is" : "files are"} unavailable.</strong>
     </div>}
-    <input ref={fileRef} type="file" hidden accept="image/*,video/*,audio/*,.gif,.obj,.gltf,.glb,.usd,.usda,.usdc,.usdz" onChange={event => {
+    <input ref={fileRef} type="file" hidden accept="image/*,video/*,audio/*,.gif,.obj,.gltf,.glb,.usd,.usda,.usdc,.usdz,.zip" onChange={event => {
       const file = event.target.files?.[0];
       const sourceId = pendingFileSourceIdRef.current || selected?.id;
       if (file) onChooseFile(file, sourceId);
@@ -866,7 +866,7 @@ export function MediaInputPanel({ sources, canvasTargets = [], selectedCanvasTar
               <span>URL</span>
               <div className="media-stream-panel-inline-control">
                 <input value={selected.media.url} placeholder={selected.media.fileName || "https://…"} onKeyDown={stopKeyPropagation} onChange={event => onPatch(selected.id, { media: { url: event.target.value, fileName: "" } })} />
-                <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => chooseFile(selected?.id)} aria-label="Choose media file" title="Choose image, GIF, video, or 3D model">⌑</button>
+                <button type="button" className="iannix-flat-button media-stream-panel-icon-button" onClick={() => chooseFile(selected?.id)} aria-label="Choose media file" title="Choose image, GIF, video, 3D model, or OBJ ZIP archive">⌑</button>
               </div>
             </label>
             {selected.media.fileName && (isMissingLocalMediaFile(selected)
