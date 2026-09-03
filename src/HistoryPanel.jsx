@@ -243,7 +243,12 @@ const HistoryPanel = memo(function HistoryPanel({
         ) : actions.map(action => {
           const index = actions.findIndex(candidate => candidate.id === action.id);
           return (
-          <div key={action.id} role="option" aria-selected={selectedActionIds.includes(action.id)} className={`history-action ${selectedActionIds.includes(action.id) ? "selected" : ""} ${action.enabled ? "" : "disabled"}`}>
+          <div key={action.id} role="option" aria-selected={selectedActionIds.includes(action.id)} className={`history-action ${selectedActionIds.includes(action.id) ? "selected" : ""} ${action.enabled ? "" : "disabled"}`} draggable={action.enabled} title={action.enabled ? "Drag this action onto a Clip lanes track" : undefined} onDragStart={event => {
+            if (!action.enabled) { event.preventDefault(); return; }
+            event.dataTransfer.effectAllowed = "copy";
+            event.dataTransfer.setData("application/x-underscores-history-action", JSON.stringify(action));
+            event.dataTransfer.setData("text/plain", actionLabel(action, commandNames));
+          }}>
             <button type="button" className="history-action-main" onClick={event => selectAction(event, action.id)} title="Select action; Shift-click a range, or Command/Ctrl-click to toggle">
               <span className={`history-action-kind kind-${action.kind}`} />
               <span className="history-action-copy">

@@ -64,7 +64,13 @@ export function PlayCoreFrame({ element, config: rawConfig, scriptRuntimeRef, tr
     const pointer = { x: 0, y: 0, pressed: false, px: 0, py: 0, ppressed: false };
     const appearance = () => scriptRuntimeRef.current?.getAppearance?.() || { theme: "dark", currentColor: "#e8e8e8", currentOpacity: 1, colors: {} };
     try {
-      const canvas = createScriptCanvasApi(scriptRuntimeRef, { onSubscription: unsubscribe => subscriptions.push(unsubscribe) });
+      const canvas = createScriptCanvasApi(scriptRuntimeRef, {
+        onSubscription: unsubscribe => subscriptions.push(unsubscribe),
+        getTime: () => {
+          const scoped = Number(transportRef.current?.time);
+          return Number.isFinite(scoped) ? scoped : undefined;
+        },
+      });
       const params = resolveScriptParameterValues(parseScriptParameters(config.source, { values: config.parameters }), scriptRuntimeRef, canvas);
       const scriptConsole = createScriptConsole(scriptRuntimeRef, element.id);
       bridge = {

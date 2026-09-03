@@ -147,7 +147,7 @@ const UnderscoresApiGuide = () => (
         <div><dt><code>appState</code></dt><dd>Read-only curated snapshot of these current-item, tool, viewport, background, and selection values.</dd></div>
         <div><dt><code>colors</code></dt><dd><code>foreground</code>, <code>accent</code>, <code>highlight</code>, and <code>muted</code> are Underscores theme colors. <code>colors.excalidraw.foreground</code> and <code>colors.excalidraw.background</code> are live canvas colors; entries expose raw <code>color</code>/<code>raw</code> and theme-matched <code>display</code>/<code>css</code> plus <code>rawCss</code>. The palette arrays are authored values; use <code>displayPalette</code>, <code>displayStrokePalette</code>, or <code>displayBackgroundPalette</code> for unfiltered live surfaces.</dd></div>
         <div><dt><code>theme</code> / <code>appearance</code></dt><dd>Current theme id, or the complete live appearance snapshot.</dd></div>
-        <div><dt><code>time</code></dt><dd>Shortcut for <code>transport.time</code>, in score seconds.</dd></div>
+        <div><dt><code>time</code></dt><dd>Shortcut for <code>transport.time</code>, in score seconds. When a node is playing from a Clip lanes timeline, this is the node's local clip time.</dd></div>
       </dl>
     </details>
     <details className="info-api-group">
@@ -159,7 +159,7 @@ const UnderscoresApiGuide = () => (
         <div><dt><code>canvas.selected()</code></dt><dd>Read-only snapshots of the current canvas selection.</dd></div>
         <div><dt><code>events.on(pattern, listener)</code></dt><dd>Subscribe to the event bus; supports a trailing <code>.*</code> wildcard and returns an unsubscribe function.</dd></div>
         <div><dt><code>events.recent(limit)</code> / <code>latest(pattern)</code></dt><dd>Inspect captured Underscores events.</dd></div>
-        <div><dt><code>transport.time</code> / <code>transport.context</code></dt><dd>Current score time and its timing context.</dd></div>
+        <div><dt><code>transport.time</code> / <code>transport.context</code></dt><dd>Current score time and its timing context; for a Livecode clip, <code>transport.time</code> follows that clip's local playhead while the context keeps the shared tempo and meter.</dd></div>
       </dl>
     </details>
     <details className="info-api-group">

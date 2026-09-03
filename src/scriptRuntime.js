@@ -44,6 +44,12 @@ const snapshotObject = (element, runtime) => {
 
 export const createScriptCanvasApi = (runtimeRef, options = {}) => {
   const runtime = () => runtimeRef?.current || {};
+  const readTime = () => {
+    const scoped = options.getTime?.();
+    if (scoped !== undefined && Number.isFinite(Number(scoped))) return Number(scoped);
+    return Number(runtime().getTime?.()) || 0;
+  };
+  const readTimeContext = () => options.getTimeContext?.() || runtime().getTimeContext?.() || {};
   const elements = () => (runtime().getElements?.() || []).filter(element => element && !element.isDeleted);
   const all = () => elements().map(element => snapshotObject(element, runtime()));
   const findElement = reference => {
@@ -88,8 +94,8 @@ export const createScriptCanvasApi = (runtimeRef, options = {}) => {
   };
   const transport = {};
   Object.defineProperties(transport, {
-    time: { enumerable: true, get: () => Number(runtime().getTime?.()) || 0 },
-    context: { enumerable: true, get: () => runtime().getTimeContext?.() || {} },
+    time: { enumerable: true, get: readTime },
+    context: { enumerable: true, get: readTimeContext },
   });
   return Object.freeze({
     all,

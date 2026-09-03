@@ -159,6 +159,7 @@ test("the Timeline lesson separates transport time, node clock, and clips", () =
     "linked-node",
     "quantize",
     "clip",
+    "clip-lanes",
     "record",
     "finish",
   ]);
@@ -173,6 +174,12 @@ test("the Timeline lesson separates transport time, node clock, and clips", () =
   const clip = TIMELINE_WALKTHROUGH.steps.find(step => step.id === "clip");
   assert.equal(clip.cues.length, 0);
   assert.equal(clip.advance.mode, "continue");
+  // Object lanes and Clip lanes answer different questions; teaching only the
+  // first leaves the timeline half-explained.
+  const lanes = TIMELINE_WALKTHROUGH.steps.find(step => step.id === "clip-lanes");
+  assert.match(clip.narration, /Object lanes/);
+  assert.match(lanes.narration, /Clip lanes/);
+  assert.match(lanes.info, /local playhead/);
 });
 
 test("bundled marionette case study is discoverable and staged", () => {

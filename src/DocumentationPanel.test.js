@@ -100,6 +100,8 @@ test("priority-area pages are reachable by the words a learner would type", () =
   assert.ok(find("physics live pose reset apply").includes("physics-pose"));
   assert.ok(find("timeline bar beat sixteenth tempo").includes("timeline-time"));
   assert.ok(find("arrangement clip trim stretch").includes("timeline-clips"));
+  assert.ok(find("clip lanes tracks drag history").includes("timeline-clip-lanes"));
+  assert.ok(find("livecode scoped clock local clip time").includes("livecode-clock"));
 });
 
 test("topic ids are unique so the contents cannot render a duplicate row", () => {

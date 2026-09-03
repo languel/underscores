@@ -199,6 +199,10 @@ export default function P5Frame({ element, config: rawConfig, scriptRuntimeRef, 
         const host = hostRef.current;
         const canvas = createScriptCanvasApi(scriptRuntimeRef, {
           onSubscription: unsubscribe => subscriptions.push(unsubscribe),
+          getTime: () => {
+            const scoped = Number(transportRef.current?.time);
+            return Number.isFinite(scoped) ? scoped : undefined;
+          },
         });
         const parameters = parseScriptParameters(activeConfig.source, {
           values: activeConfig.parameters || {},
