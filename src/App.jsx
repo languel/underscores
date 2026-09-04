@@ -4835,6 +4835,10 @@ function App() {
   }));
   const arrangementStateRef = useRef(arrangementState);
   arrangementStateRef.current = arrangementState;
+  // Clip-lane metadata lives in the Underscores authored envelope rather than
+  // Excalidraw elements, so keep a small local undo/redo history for timeline
+  // edits (delete, trim, track changes) while the timeline owns focus.
+  const arrangementHistoryRef = useRef({ undo: [], redo: [] });
   const [arrangementRecordArmed, setArrangementRecordArmed] = useState(false);
   const [selectedArrangementClipId, setSelectedArrangementClipId] = useState("");
   const arrangementRecordArmedRef = useRef(arrangementRecordArmed);
@@ -10411,7 +10415,7 @@ function App() {
         arrangementFinalizePendingRef.current(elementId);
       });
     }
-    setSceneExchangeStatus(enabled ? `Arrangement recording armed (${arrangementStateRef.current.recording.mode}).` : "Arrangement recording disarmed.");
+    setSceneExchangeStatus(enabled ? `Timeline action-loop recording armed (${arrangementStateRef.current.recording.mode}).` : "Timeline action-loop recording disarmed.");
     return enabled;
   }, [transportLoopEnd, transportLoopStart]);
 
@@ -10492,11 +10496,29 @@ function App() {
     return { elementIds: targets.map(element => element.id) };
   }, [timeContext, transportFps, transportLoopEnd, transportLoopStart]);
 
-  const patchArrangementTimeline = useCallback((patch = {}) => {
-    const next = createArrangementState({ ...arrangementStateRef.current, ...patch });
+  const patchArrangementTimeline = useCallback((patch = {}, { commitToHistory = true } = {}) => {
+    const previous = arrangementStateRef.current;
+    const next = createArrangementState({ ...previous, ...patch });
+    if (commitToHistory && JSON.stringify(previous) !== JSON.stringify(next)) {
+      arrangementHistoryRef.current.undo.push(previous);
+      arrangementHistoryRef.current.redo = [];
+    }
     arrangementStateRef.current = next;
     setArrangementState(next);
     return next;
+  }, []);
+
+  const applyArrangementTimelineHistory = useCallback(direction => {
+    const history = arrangementHistoryRef.current;
+    const source = direction === "redo" ? history.redo : history.undo;
+    const target = source.pop();
+    if (!target) return false;
+    const destination = direction === "redo" ? history.undo : history.redo;
+    destination.push(arrangementStateRef.current);
+    arrangementStateRef.current = target;
+    setArrangementState(target);
+    localStorage.setItem("underscores_timeline_mode", target.timelineMode);
+    return true;
   }, []);
 
   const setArrangementTimelineMode = useCallback(mode => {
@@ -10581,21 +10603,19 @@ function App() {
         },
       }, timeContext);
     });
-    const next = createArrangementState({ ...current, timelineMode: "clips", clipTracks: tracks, timelineClips: [...current.timelineClips, ...clips] });
-    arrangementStateRef.current = next;
-    setArrangementState(next);
+    patchArrangementTimeline({ timelineMode: "clips", clipTracks: tracks, timelineClips: [...current.timelineClips, ...clips] });
     setSceneExchangeStatus(`Added ${clips.length} timeline clip${clips.length === 1 ? "" : "s"} to ${tracks.find(track => track.id === targetTrackId)?.name || "track"}.`);
     return clips;
-  }, [defaultExcalidrawLabelMap, timeContext, transportFps]);
+  }, [defaultExcalidrawLabelMap, patchArrangementTimeline, timeContext, transportFps]);
 
   const editTimelineClip = useCallback((clipId, timing) => {
     const current = arrangementStateRef.current;
     patchArrangementTimeline({ timelineClips: current.timelineClips.map(clip => clip.id === clipId ? createTimelineClip({ ...clip, timing: { ...clip.timing, ...timing } }, timeContext) : clip) });
   }, [patchArrangementTimeline, timeContext]);
 
-  const deleteTimelineClip = useCallback(clipId => {
+  const deleteTimelineClip = useCallback((clipId, { commitToHistory = true } = {}) => {
     const current = arrangementStateRef.current;
-    patchArrangementTimeline({ timelineClips: current.timelineClips.filter(clip => clip.id !== clipId) });
+    patchArrangementTimeline({ timelineClips: current.timelineClips.filter(clip => clip.id !== clipId) }, { commitToHistory });
     if (selectedArrangementClipId === clipId) setSelectedArrangementClipId("");
   }, [patchArrangementTimeline, selectedArrangementClipId]);
 
@@ -11046,19 +11066,24 @@ function App() {
       }, 0);
       setModifierUpdateNonce(nonce => nonce + 1);
     }
-    historyController.record({
-      kind: "stroke",
-      ...(loopOverdub ? { at: Math.max(0, startTime - transportLoopStart) } : {}),
-      duration,
-      transportTime: startTime,
-      source: samples[0]?.source || "pointer",
-      args: {
-        samples,
-        finalElements: gestureElements,
-        brush,
-        gestureId: samples.length >= 2 ? gestureId : null,
-      },
-    });
+    // A timeline action-loop take belongs to Arrangement metadata. Keep it
+    // out of History even if a stale or programmatic call leaves both record
+    // flags active for one event.
+    if (!arrangementCapture) {
+      historyController.record({
+        kind: "stroke",
+        ...(loopOverdub ? { at: Math.max(0, startTime - transportLoopStart) } : {}),
+        duration,
+        transportTime: startTime,
+        source: samples[0]?.source || "pointer",
+        args: {
+          samples,
+          finalElements: gestureElements,
+          brush,
+          gestureId: samples.length >= 2 ? gestureId : null,
+        },
+      });
+    }
     if (arrangementCapture && arrangementMode === "step") stepArrangementPlayhead(1);
     strokeInputSamplesRef.current = [];
     strokeRecordingSuppressedRef.current = false;
@@ -15708,8 +15733,8 @@ function App() {
     { id: "arrangement.take.mute", name: "Mute Arrangement Take", category: "Arrangement", args: { takeId: "string", muted: "boolean" }, action: (_api, args) => patchArrangementTake(args.takeId, { muted: args.muted !== false }) },
     { id: "arrangement.take.solo", name: "Solo Arrangement Take", category: "Arrangement", args: { takeId: "string", solo: "boolean" }, action: (_api, args) => patchArrangementTake(args.takeId, { solo: args.solo !== false }) },
     { id: "arrangement.take.delete", name: "Delete Arrangement Take", category: "Arrangement", args: { takeId: "string" }, action: (_api, args) => deleteArrangementTake(args.takeId) },
-    { id: "arrangement.record.toggle", name: "Arm Arrangement Recording", category: "Arrangement", action: () => setArrangementRecordingArmed(value => !value) },
-    { id: "arrangement.record.mode", name: "Set Arrangement Recording Mode", category: "Arrangement", args: { mode: "rolling|step" }, action: (_api, args) => setArrangementRecordingMode(args?.mode) },
+    { id: "arrangement.record.toggle", name: "Record Action Loop on Timeline", category: "Arrangement", action: () => toggleArrangementRecording(value => !value) },
+    { id: "arrangement.record.mode", name: "Set Timeline Action-Loop Mode", category: "Arrangement", args: { mode: "rolling|step" }, action: (_api, args) => setArrangementRecordingMode(args?.mode) },
     { id: "presentation.panels", name: "Update Panel Presentation", category: "Panels", record: "presentation", args: { state: "panelState" }, action: (_api, args) => runtimeCallbacksRef.current.panelStateUpdate(args?.state || args) },
     { id: "settings.board.update", name: "Update Board Settings", category: "Settings", record: "presentation", args: { state: "boardSettings" }, sensitiveArgs: ["state.credentials", "state.apiKey", "state.token"], ai: { expose: true, description: "Change visual board settings such as theme, toolbar hints, accent/highlight colors, or interface theme. Never set credentials, API keys, tokens, endpoints, or permissions.", example: { state: { theme: "dark", accentColor: "#7d8588", accentOpacity: 70 } } }, action: (_api, args) => runtimeCallbacksRef.current.boardSettingsUpdate(args?.state || args) },
     { id: "grid.global.update", name: "Update Global Grid /grid update", aliases: ["/grid update"], category: "Grid", args: { patch: "gridPatch" }, ai: { expose: true, description: "Update the global grid, including appearance, spacing, subdivisions, snapping, time mapping, or value mapping.", example: { patch: { appearance: { visible: true }, snap: { mode: "hard" }, spacing: { x: 100, y: 100 } } } }, action: (_api, args) => runtimeCallbacksRef.current.globalGridUpdate(args?.patch || args) },
@@ -16497,7 +16522,7 @@ function App() {
           return;
         }
         if (shortcutAction.id === "arrangement.record.toggle") {
-          setArrangementRecordingArmed(value => !value);
+          toggleArrangementRecording(value => !value);
           return;
         }
         if (shortcutAction.id === "arrangement.record.mode.toggle") {
@@ -21745,6 +21770,9 @@ function App() {
     collaborationMetadataRef.current = collaboration;
     lastSceneElementPersistenceSignatureRef.current = scenePersistenceSignature(restoredElements);
     if (applyAuthoredState) {
+      // Imported authored state establishes a new timeline baseline; do not
+      // let Undo resurrect clips from the previous document.
+      arrangementHistoryRef.current = { undo: [], redo: [] };
       setGlobalGrid(grid);
       setExpressiveSynthConfig(expressiveSynth);
       mixerRef.current = importedMixer;
@@ -22331,6 +22359,9 @@ function App() {
   // this), while ordinary recording no longer reuses the previous session's
   // action list or playhead.
   const startHistoryRecording = ({ play = false, loopOverdub = false, append = false } = {}) => {
+    // History and Timeline are separate recorders. Finish/disarm any active
+    // timeline action-loop capture before starting a History performance take.
+    if (arrangementRecordArmedRef.current) setArrangementRecordingArmed(false);
     const baseline = captureSessionBaseline();
     lastSceneElementsRef.current = new Map(
       (excalidrawAPI?.getSceneElementsIncludingDeleted() || []).map(element => [element.id, element])
@@ -22361,6 +22392,19 @@ function App() {
     gestureLoopRecordingRef.current = false;
     panicMidi();
     if (wasRecording) await historyLibrary.put(historyController.get());
+  };
+
+  const toggleArrangementRecording = nextValue => {
+    const enabled = typeof nextValue === "function"
+      ? nextValue(arrangementRecordArmedRef.current)
+      : Boolean(nextValue);
+    // Starting a timeline action-loop take owns gesture capture. Stop an
+    // active History performance take first so one stroke cannot enter both
+    // recorders.
+    if (enabled && (historyController.status === "recording" || historyController.status === "recording-paused")) {
+      void stopHistory();
+    }
+    return setArrangementRecordingArmed(enabled);
   };
 
   const cancelPendingHistoryMacroActions = () => {
@@ -27981,17 +28025,17 @@ function App() {
           <button
             type="button"
             className={arrangementRecordArmed ? "active arrangement-record" : "arrangement-record"}
-            onClick={() => setArrangementRecordingArmed(value => !value)}
-            title="Arm arrangement recording (Option-Shift-R)"
-            aria-label="Arm arrangement recording"
+            onClick={() => toggleArrangementRecording(value => !value)}
+            title="Record action loop on Timeline (Option-Shift-R)"
+            aria-label="Record action loop on Timeline"
             aria-pressed={arrangementRecordArmed}
           >●</button>
           <button
             type="button"
             className="arrangement-record-mode"
             onClick={() => setArrangementRecordingMode(arrangementState.recording.mode === "rolling" ? "step" : "rolling")}
-            title="Toggle rolling or step recording (Option-Shift-S)"
-            aria-label={`Arrangement recording mode: ${arrangementState.recording.mode}`}
+            title="Toggle Timeline action-loop mode: rolling or step (Option-Shift-S)"
+            aria-label={`Timeline action-loop mode: ${arrangementState.recording.mode}`}
           >{arrangementState.recording.mode === "rolling" ? "R" : "S"}</button>
           {arrangementState.recording.mode === "step" ? <div className="arrangement-step-options">
             <TimeValueInput
@@ -28150,6 +28194,8 @@ function App() {
           onTimelineClipDrop={addTimelineClipFromDrop}
           onTimelineClipEdit={editTimelineClip}
           onTimelineClipDelete={deleteTimelineClip}
+          onTimelineUndo={() => applyArrangementTimelineHistory("undo")}
+          onTimelineRedo={() => applyArrangementTimelineHistory("redo")}
           onTimelineTrackPatch={patchArrangementTimelineTrack}
           onTimelineTrackMove={moveArrangementTimelineTrack}
         />

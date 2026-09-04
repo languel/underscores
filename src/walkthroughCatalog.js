@@ -537,7 +537,7 @@ export const TIMELINE_WALKTHROUGH = createWalkthrough({
     {
       id: "record",
       title: "8. Record a performance into clips",
-      narration: "Arrangement Record captures performance as clips, separately from History.\n\n**Alt+Shift+R** arms it. **Alt+Shift+S** switches Rolling and Step. Rolling records against the moving playhead; Step keeps the transport paused and **Alt+Right** / **Alt+Left** move the step playhead, which is how you build something frame by frame.",
+      narration: "Timeline Action-Loop Record captures performance as arrangement clips, separately from History's performance and macro recording.\n\n**Alt+Shift+R** arms it. **Alt+Shift+S** switches Rolling and Step. Rolling records against the moving playhead; Step keeps the transport paused and **Alt+Right** / **Alt+Left** move the step playhead, which is how you build something frame by frame.",
       info: "A completed drawing becomes a gesture lifecycle and a clip. Recordings that cross a loop boundary become source-continuous linked segments sharing one recording ID, and each loop pass becomes an overlay take. Take rows carry M and S: muting or soloing changes evaluation without touching the authored objects.",
       focusTarget: "panel.transport",
       advance: { mode: "continue" },

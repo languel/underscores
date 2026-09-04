@@ -37,6 +37,8 @@ const TransportTimeline = memo(function TransportTimeline({
   onTimelineClipDrop = () => {},
   onTimelineClipEdit = () => {},
   onTimelineClipDelete = () => {},
+  onTimelineUndo = () => false,
+  onTimelineRedo = () => false,
   onTimelineTrackPatch = () => {},
   onTimelineTrackMove = () => {},
 }) {
@@ -131,6 +133,14 @@ const TransportTimeline = memo(function TransportTimeline({
   const selectedClipSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds]);
 
   const handleTimelineKeyDown = useCallback((event) => {
+    if ((event.metaKey || event.ctrlKey) && !event.altKey && !event.isComposing && event.key.toLowerCase() === "z") {
+      const changed = event.shiftKey ? onTimelineRedo() : onTimelineUndo();
+      if (changed) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+      return;
+    }
     if (event.key !== "Delete" && event.key !== "Backspace") return;
     const target = event.target;
     if (target?.closest?.("input, textarea, select, [contenteditable='true']")) return;
@@ -145,14 +155,14 @@ const TransportTimeline = memo(function TransportTimeline({
     event.preventDefault();
     event.stopPropagation();
     if (timelineMode === "clips") {
-      selected.forEach(id => onTimelineClipDelete(id));
+      selected.forEach((id, index) => onTimelineClipDelete(id, { commitToHistory: index === 0 }));
     } else {
       selected.forEach(id => {
         const elementId = clipSelectionIndex.elementByClipId.get(id);
         if (elementId) onClipDelete(elementId, id);
       });
     }
-  }, [clipSelectionIndex, onClipDelete, onTimelineClipDelete, timelineMode]);
+  }, [clipSelectionIndex, onClipDelete, onTimelineClipDelete, onTimelineRedo, onTimelineUndo, timelineMode]);
 
   const commitClipSelection = useCallback((ids, { additive = false, primaryClipId = "" } = {}) => {
     const requested = new Set(Array.isArray(ids) ? ids : []);
@@ -617,6 +627,10 @@ const TransportTimeline = memo(function TransportTimeline({
     const beginClipDrag = (event, kind) => {
       if (event.button !== 0) return;
       event.stopPropagation();
+      // Keep keyboard editing owned by the timeline after a clip click. If we
+      // leave focus on the last toolbar button, Backspace/Delete is consumed
+      // by the browser or canvas instead of deleting the selected clip.
+      timelineRef.current?.focus?.({ preventScroll: true });
       selectClip(event, clip.id);
       beginDrag(event, {
         kind,
@@ -662,6 +676,7 @@ const TransportTimeline = memo(function TransportTimeline({
     const beginClipDrag = (event, kind) => {
       if (event.button !== 0) return;
       event.stopPropagation();
+      timelineRef.current?.focus?.({ preventScroll: true });
       selectClip(event, clip.id);
       beginDrag(event, {
         kind,
@@ -703,7 +718,7 @@ const TransportTimeline = memo(function TransportTimeline({
     <div
       ref={timelineRef}
       className={`iannix-timeline${showArrangement || showTimeline ? " has-arrangement" : ""}${timelineMode === "clips" ? " clip-mode" : ""}${arrangementLabelsCollapsed ? " arrangement-labels-collapsed" : ""}`}
-      style={{ "--arrangement-label-width": arrangementLabelsCollapsed ? "30px" : "116px" }}
+      style={{ "--arrangement-label-width": arrangementLabelsCollapsed ? "30px" : timelineMode === "clips" ? "160px" : "116px" }}
       aria-label="Score timeline"
       tabIndex={-1}
       onKeyDown={handleTimelineKeyDown}

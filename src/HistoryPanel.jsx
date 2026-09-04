@@ -165,7 +165,7 @@ const HistoryPanel = memo(function HistoryPanel({
   return (
     <div className="history-panel">
       <div className="history-transport">
-        <IconButton title={isRecording ? "Stop recording" : "Record new take"} className={isRecording ? "recording" : ""} onClick={isRecording ? onStop : onStart}>
+        <IconButton title={isRecording ? "Stop History recording" : "Record performance or macro"} className={isRecording ? "recording" : ""} onClick={isRecording ? onStop : onStart}>
           {isRecording ? <span className="history-stop-icon" /> : <span className="history-record-icon" />}
         </IconButton>
         <IconButton title={pauseTitle} onClick={onPause} disabled={!isRecording && !isPlaying}>

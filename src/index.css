@@ -6766,13 +6766,14 @@ a.iannix-flat-button {
   --transport-accent: var(--underscores-accent, #6b7173);
   --transport-accent-soft: var(--underscores-highlight, rgba(143, 143, 143, 0.1));
   display: grid;
-  grid-template-columns: 92px 180px 90px 174px 108px 86px 82px 46px 124px minmax(80px, 1fr);
+  grid-template-columns: 92px 180px 90px 174px 108px 86px 82px 46px 124px minmax(80px, 1fr) 82px;
   grid-template-rows: var(--underscores-ui-control-height) minmax(0, 1fr);
   align-items: start;
   align-content: start;
   gap: 3px;
   width: 100%;
   height: 100%;
+  box-sizing: border-box;
   min-height: 0;
   padding: 0 4px 4px;
   border: 0;
@@ -7708,11 +7709,20 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
 @media (max-width: 980px) {
   .iannix-transport {
-    grid-template-columns: 76px 160px 82px 166px 92px 76px 72px 38px 116px minmax(70px, 1fr);
+    position: relative;
+    grid-template-columns: 76px 138px 66px 166px 76px 60px 60px 32px 88px minmax(70px, 1fr);
   }
 
   .iannix-transport-status {
     display: none;
+  }
+
+  .iannix-timeline-mode-controls {
+    position: absolute;
+    z-index: 2;
+    top: 3px;
+    right: 4px;
+    margin-left: 0;
   }
 }
 
@@ -7735,6 +7745,12 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
   .iannix-transport-display strong {
     font-size: 14px;
+  }
+
+  .iannix-timeline-mode-controls {
+    position: static;
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 }
 
@@ -11033,6 +11049,24 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   outline: none !important;
   background: color-mix(in srgb, var(--transport-accent) 25%, transparent) !important;
   color: var(--transport-text) !important;
+  box-shadow: none !important;
+}
+
+/* These dense icon controls are pointer-first surfaces. Suppress the
+   browser's blue focus frame so a clip edit does not leave a distracting
+   outline on the physics toolbar or transport while the timeline owns keys. */
+body .excalidraw .physics-toolbar button:focus,
+body .excalidraw .physics-transport button:focus,
+body .excalidraw .physics-panel button:focus,
+body .excalidraw .iannix-transport button:focus,
+body .excalidraw .iannix-timeline button:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+body .excalidraw .iannix-timeline:focus,
+body .excalidraw .iannix-timeline:focus-visible {
+  outline: none !important;
   box-shadow: none !important;
 }
 
