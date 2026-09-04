@@ -10,7 +10,8 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "transport.play.toggle", label: "Play / pause score", defaultBinding: "Space" },
   { id: "transport.jump.start", commandId: "transport.jump.start", label: "Jump to timeline / loop start", defaultBinding: "Shift+ArrowLeft" },
   { id: "transport.jump.end", commandId: "transport.jump.end", label: "Jump to timeline / loop end", defaultBinding: "Shift+ArrowRight" },
-  { id: "command.palette.toggle", label: "Command palette", defaultBinding: "Mod+Slash" },
+  { id: "command.palette.toggle", label: "Command palette", defaultBinding: "Mod+Slash", alternateBindings: ["Slash"] },
+  { id: "documentation.shortcuts", commandId: "documentation.shortcuts", label: "Canvas shortcuts / help", defaultBinding: "Shift+Slash" },
   { id: "workspace.reset.defaults", commandId: "workspace.reset.defaults", label: "Reset workspace to defaults", defaultBinding: "Ctrl+Alt+Shift+KeyD" },
   {
     id: "iannix.command.clear",
@@ -25,7 +26,7 @@ export const SHORTCUT_ACTIONS = Object.freeze([
   { id: "panel-transport", label: "Timeline panel", defaultBinding: "Ctrl+Alt+KeyT" },
   { id: "panel-settings", label: "Settings panel", defaultBinding: "Mod+Comma" },
   { id: "panel-chat", label: "AI panel", defaultBinding: "Ctrl+Alt+KeyA" },
-  { id: "ai.context.prompt", label: "Context AI command", defaultBinding: "Alt+Shift+Minus" },
+  { id: "ai.context.prompt", label: "Apply action to selection", defaultBinding: "Alt+Shift+Minus", alternateBindings: ["Shift+Period"] },
   { id: "panel-properties.open", label: "Open Properties panel", defaultBinding: "Mod+Alt+KeyP" },
   { id: "physics.toolbar.toggle", commandId: "physics.toolbar.toggle", label: "Physics toolbar", defaultBinding: "Ctrl+Alt+KeyP" },
   { id: "dock.left.toggle", label: "Left dock collapse", defaultBinding: "Mod+KeyB" },
@@ -103,6 +104,8 @@ export const shortcutMatchesEvent = (binding, event) => Boolean(binding) && shor
 
 export const shortcutLabel = binding => {
   if (!binding) return "Unassigned";
+  if (binding === "Shift+Slash") return "?";
+  if (binding === "Shift+Period") return ">";
   const isMac = usesAppleModifiers();
   return binding.split("+").map(part => {
     if (part === "Mod") return isMac ? "⌘" : "Ctrl";
@@ -116,6 +119,7 @@ export const shortcutLabel = binding => {
     if (part === "BracketLeft") return "[";
     if (part === "BracketRight") return "]";
     if (part === "Minus") return "-";
+    if (part === "Period") return ".";
     if (part.startsWith("Key")) return part.slice(3);
     if (part.startsWith("Digit")) return part.slice(5);
     return part;

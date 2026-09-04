@@ -83,7 +83,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     editorProfile: "markdown",
     defaultName: "Untitled Markdown",
     defaultSource: "# Livecode Node\n\nWrite a presentation slide here. Inline math: $E = mc^2$.",
-    summary: "Presentation document with local Markdown and inline LaTeX rendering.",
+    summary: "Presentation document with local Markdown and inline LaTeX rendering. Enable Slideshow in Node settings to present `---`-separated slides.",
   }),
   [LIVECODE_KINDS.latex]: Object.freeze({
     label: "LaTeX",
@@ -364,9 +364,11 @@ export const createLivecodeNode = value => {
   const sourceByKind = normalizeLivecodeSourceByKind(raw.sourceByKind);
   const requestedView = ["code", "preview", "source", "split"].includes(raw.view)
     ? raw.view
-    : raw.view === "overlay"
-      ? "code"
-      : "code";
+    : kind === LIVECODE_KINDS.markdown && raw.view === "slideshow"
+      ? "slideshow"
+      : raw.view === "overlay"
+        ? "code"
+        : "code";
   const nodeId = typeof raw.nodeId === "string" && raw.nodeId.trim() ? raw.nodeId : `livecode-${createLivecodeId()}`;
   const blankName = randomLivecodeName(kind, nodeId);
   const source = typeof raw.source === "string" ? raw.source : "";

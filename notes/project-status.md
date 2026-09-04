@@ -5,7 +5,7 @@ Last updated: 2026-08-31
 ## Documentation and panel polish (2026-08-31)
 
 Documentation now has a searchable, nested table of contents with local reading-size control,
-patch insertion, and walkthrough launch actions. It is a first-class left-docked panel that can
+sketch insertion, and walkthrough launch actions. It is a first-class left-docked panel that can
 also join the deterministic bottom order (Timeline, Mixer, Info, Documentation, Console), while
 Info remains a compact contextual reference. The shared AI and room-chat composers use a themed
 50%-translucent input surface, and panel notes now document the `/docs` and `/help` lookup aliases.
@@ -26,9 +26,9 @@ command registry. Versioned walkthrough definitions merge per ID, while playback
 pace, and recovery remain local. The first bundled onboarding covers the main panels, p5, GLSL,
 audio permission, and physics; History can produce editable walkthrough drafts, Playlist and
 transport can drive playback, and the same controls are available through `window.__`, WebMCP, and
-the assistant. Project/fragment/help patch metadata and the `.__.json` default establish the first
+the assistant. Project/fragment/help sketch metadata and the `.__.json` default establish the first
 help-catalog foundation. See [Guided Walkthroughs](guided-walkthrough.md) and
-[Patches and help catalog](patches-and-help.md).
+[Sketches and help catalog](patches-and-help.md).
 
 ## Anonymous multiplayer checkpoint (2026-08-25)
 
@@ -119,7 +119,7 @@ samples, pixels, or device/socket state. See
   Markdown, LaTeX, HTML, and Orca adapters. p5 is the polished Livecode path. Markdown is
   presentation-ready with contained overflow scrolling, and LaTeX supports explicit inline/display
   delimiters. See [Livecode Nodes](livecode.md).
-- WebGL 2 GLSL Livecode Nodes with editable Hello, Rainbow Geometry, 2D Shadows, Fluid Brush, and
+- WebGL 2 GLSL Livecode Nodes with editable Hello, compact space and quark-soup raymarches, Starfield, 2D Shadows, Fluid Brush, and
   Stokes examples. Shader nodes can render above or below Excalidraw, blend and fade per node, use
   scene paths as uniforms, and preserve real alpha; Fluid Brush can display dye alone over a
   transparent background instead of painting a rectangular dark frame.

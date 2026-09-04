@@ -149,6 +149,8 @@ test("normalization keeps unsupported values bounded and preserves authored sour
 test("supports raw Code mode while retaining legacy code-overlay values", () => {
   assert.equal(createLivecodeNode({ kind: "shader", view: "source" }).view, "source");
   assert.equal(createLivecodeNode({ kind: "shader", view: "overlay" }).view, "code");
+  assert.equal(createLivecodeNode({ kind: LIVECODE_KINDS.markdown, view: "slideshow" }).view, "slideshow");
+  assert.equal(createLivecodeNode({ kind: LIVECODE_KINDS.p5, view: "slideshow" }).view, "code");
 });
 
 test("code overlay opacity defaults to 50% while preserving an explicit zero", () => {

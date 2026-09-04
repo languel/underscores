@@ -68,42 +68,51 @@ test("onboarding teaches the palette shortcut that actually exists", () => {
   assert.doesNotMatch(palette.info, /Command\/Ctrl\+K/);
 });
 
-test("onboarding enables audio in the step whose narration promises it", () => {
+test("onboarding stages the demo in the requested order", () => {
   const stepIds = ONBOARDING_WALKTHROUGH.steps.map(step => step.id);
   assert.deepEqual(stepIds, [
     "welcome",
     "palette",
     "panels",
     "documentation",
-    "timeline-info",
+    "timeline",
     "p5",
-    "glsl",
-    "audio",
-    "physics",
+    "quarksoup",
+    "twigl",
     "finish",
   ]);
-  const audio = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "audio");
-  const physics = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "physics");
-  assert.ok(audio.cues.some(cue => cue.commandId === "expressiveSynth.demo.create"));
-  assert.ok(!physics.cues.some(cue => cue.commandId === "expressiveSynth.demo.create"));
-  // The learner gate prompts on that command, so the narration has to warn first.
-  assert.match(audio.narration, /allow/i);
+  const panels = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "panels");
+  assert.ok(panels.cues.some(cue => cue.commandId === "strudel.demo.underlooped"));
+  assert.match(panels.narration, /allow/i);
+  const timeline = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "timeline");
+  assert.equal(timeline.focusTarget, "panel.transport");
+  assert.ok(timeline.cues.some(cue => cue.commandId === "transport.update" && cue.args.state.tempo === 174));
 });
 
-test("onboarding checks the pendulum world instead of counting any two objects", () => {
-  const physics = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "physics");
-  // scene.exists with only minCount passes as soon as any two elements exist,
-  // which the p5 and shader steps already guarantee.
-  assert.equal(physics.advance.assertion.type, "physics.state");
-  assert.equal(physics.advance.assertion.minSystems, 1);
-  assert.equal(physics.advance.assertion.minBodies, 2);
+test("onboarding types Tixy before selecting Pollock and uses two tempo-linked shaders", () => {
+  const p5 = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "p5");
+  const typed = p5.cues.find(cue => cue.type === "ui" && cue.action === "type");
+  assert.match(typed.value, /Tixy|wave field|hypot/);
+  assert.equal(p5.cues.find(cue => cue.type === "ui" && cue.action === "select").value, "pollock-splatter");
+  assert.ok(p5.cues.some(cue => cue.commandId === "livecode.node.run"));
+  for (const id of ["quarksoup", "twigl"]) {
+    const step = ONBOARDING_WALKTHROUGH.steps.find(candidate => candidate.id === id);
+    const create = step.cues.find(cue => cue.commandId === "livecode.node.create");
+    assert.equal(create.args.transportMode, "linked");
+    assert.match(create.args.source, /174\.\/60\./);
+  }
+  assert.equal(ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "twigl").focusTarget, "editor.scriptType");
 });
 
 test("onboarding introduces Documentation and supersedes the earlier revision", () => {
+  const welcome = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "welcome");
+  assert.equal(welcome.showTitle, false);
+  assert.match(welcome.narration, /^_Underscores_ is an infinite creative computation canvas/);
+  assert.match(welcome.narration, /canvas _sketch_/);
   const docs = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "documentation");
   assert.equal(docs.focusTarget, "panel.documentation");
   assert.ok(docs.cues.some(cue => cue.commandId === "panel.open" && cue.args.panelId === "documentation"));
-  assert.ok(ONBOARDING_WALKTHROUGH.revision >= 2, "bump the revision so saved patches adopt the fixed tour");
+  assert.ok(ONBOARDING_WALKTHROUGH.revision >= 4, "bump the revision so saved sketches adopt the rebuilt tour");
 });
 
 test("the Livecode lesson grows one node through parameters and score time", () => {

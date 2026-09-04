@@ -1,4 +1,4 @@
-const SAFE_TARGET = /^(canvas(?:\.selection|\.element:[A-Za-z0-9_-]+)?|app\.commandPalette|editor\.livecode|panel\.[A-Za-z0-9_-]+)$/;
+const SAFE_TARGET = /^(canvas(?:\.selection|\.element:[A-Za-z0-9_-]+)?|app\.commandPalette|editor\.(?:livecode|scriptType|p5Example)|panel\.[A-Za-z0-9_-]+)$/;
 
 export const isRegisteredWalkthroughTarget = target => SAFE_TARGET.test(String(target || ""));
 
@@ -34,6 +34,14 @@ export const resolveWalkthroughTarget = (target, {
     const element = documentRef?.querySelector?.('.script-panel-editor .cm-content, .underscores-code-editor .cm-content, [data-walkthrough-target="editor.livecode"]') || null;
     return element ? { key, element } : null;
   }
+  if (key === "editor.scriptType") {
+    const element = documentRef?.querySelector?.('[data-walkthrough-target="editor.scriptType"], .script-panel-type-picker > summary') || null;
+    return element ? { key, element } : null;
+  }
+  if (key === "editor.p5Example") {
+    const element = documentRef?.querySelector?.('[data-walkthrough-target="editor.p5Example"], .livecode-example-control select') || null;
+    return element ? { key, element } : null;
+  }
   if (key.startsWith("panel.")) {
     const id = key.slice(6);
     const element = documentRef?.querySelector?.(`[data-panel-id="${CSS.escape(id)}"], #underscores-panel-${CSS.escape(id)}`) || null;
@@ -55,6 +63,12 @@ export const performWalkthroughUiAction = async (cue, options = {}) => {
   if (!element) throw new Error(`Walkthrough target is not currently available: ${cue.target}.`);
   if (cue.action === "click") return element.click();
   if (cue.action === "focus") return element.focus();
+  if (cue.action === "select") {
+    if (!("value" in element)) throw new Error(`Walkthrough target is not selectable: ${cue.target}.`);
+    element.value = String(cue.value || "");
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    return;
+  }
   if (cue.action === "type") {
     element.focus();
     const value = String(cue.value || "");

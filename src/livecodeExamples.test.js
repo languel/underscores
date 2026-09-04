@@ -65,16 +65,30 @@ test("Strudel exposes basics, grooves, and a composed theme", () => {
   const examples = getLivecodeExamples(LIVECODE_KINDS.strudel);
   assert.deepEqual(
     examples.map(example => example.id),
-    ["starter", "four-on-the-floor", "hi-hat-grid", "slow-arpeggio", "bass-and-drums", "neon-night"],
+    [
+      "starter",
+      "four-on-the-floor",
+      "hi-hat-grid",
+      "slow-arpeggio",
+      "bass-and-drums",
+      "neon-night",
+      "trip-hop-backdrop",
+      "airbient",
+      "sunroom",
+      "sunday-wrld",
+      "underlooped",
+    ],
   );
   for (const example of examples) {
     assert.ok(example.name, `${example.id} should have a name`);
-    assert.ok(example.source.includes("$:"), `${example.id} should contain a runnable Strudel voice`);
+    assert.match(example.source, /\$:|arrange\(/, `${example.id} should contain a runnable Strudel voice or arrangement`);
   }
   const theme = examples.find(example => example.id === "neon-night");
   assert.match(theme.source, /_pianoroll/);
   assert.match(theme.source, /color\(/);
   assert.match(theme.source, /s\("bd/);
+  const underlooped = examples.find(example => example.id === "underlooped");
+  assert.match(underlooped.source, /setcpm\(174\s*\/\s*4\)/);
 });
 
 test("Orca exposes full-grid note, loop, counter, and random starters", () => {

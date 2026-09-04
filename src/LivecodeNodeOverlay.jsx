@@ -352,6 +352,20 @@ function StrudelNodeRuntime({ element, node, scriptRuntimeRef, onStrudelTranspor
     }).catch(() => undefined);
   }, [bridge, elementId, evaluationRevision, launchAt, runtime, source, transportMode]);
   useEffect(() => {
+    if (!node.runtime.running) return undefined;
+    // A walkthrough may create this node after its protected Allow dialog has
+    // resolved, which is no longer a browser user-gesture turn. Retry the
+    // normal Strudel unlock on the next real pointer/key gesture so the bed
+    // becomes audible without asking the learner to restart the tour.
+    const unlockFromGesture = () => { void runtime.unlock().catch(() => undefined); };
+    window.addEventListener("pointerdown", unlockFromGesture, true);
+    window.addEventListener("keydown", unlockFromGesture, true);
+    return () => {
+      window.removeEventListener("pointerdown", unlockFromGesture, true);
+      window.removeEventListener("keydown", unlockFromGesture, true);
+    };
+  }, [node.runtime.running, runtime]);
+  useEffect(() => {
     runtime.setNodeTransportMode(elementId, transportMode);
   }, [elementId, runtime, transportMode]);
   useEffect(() => () => { void runtime.remove(elementId); }, [elementId, runtime]);
@@ -460,7 +474,7 @@ function LivecodeRuntimeSurface({ element, node, scriptRuntimeRef, transport, ed
     : null;
 }
 
-const nextLivecodeView = view => ({ preview: "source", source: "code", code: "split", split: "preview", overlay: "split" }[view] || "source");
+const nextLivecodeView = view => ({ preview: "source", source: "code", code: "split", split: "preview", slideshow: "preview", overlay: "split" }[view] || "source");
 const nextLivecodeViewForNode = node => {
   const next = nextLivecodeView(node.view);
   return node.kind === "strudel" && next === "split" ? "preview" : next;
@@ -653,7 +667,7 @@ export function LivecodeNodeOverlay({
           node={node}
           scriptRuntimeRef={scriptRuntimeRef}
           transport={nodeTransport}
-          editable={visible && node.kind === "markdown" && node.view === "preview"}
+          editable={visible && node.kind === "markdown" && (node.view === "preview" || node.view === "slideshow")}
           documentEditing={editing}
           onActivate={event => onEdit?.(element.id, event ? { view: getLivecodeViewForDoubleClick(event) } : undefined)}
           onPatch={patch => onPatch?.(element.id, patch)}
@@ -697,7 +711,7 @@ export function LivecodeNodeOverlay({
           }}
         >{editor}</div>;
         if (editing) {
-          if (node.kind === "markdown" && node.view === "preview") {
+          if (node.kind === "markdown" && (node.view === "preview" || node.view === "slideshow")) {
             return <div className="livecode-node-surface interactive markdown-document-editor">{runtime}</div>;
           }
           if (node.view === "preview") return <div className={`livecode-node-surface interactive ${node.kind === "strudel" ? "livecode-node-strudel-visual-output" : ""}`}>
@@ -778,7 +792,7 @@ export function LivecodeNodeOverlay({
           onDoubleClick={visible ? event => onEdit?.(element.id, { view: getLivecodeViewForDoubleClick(event) }) : undefined}
           ariaLabel={`${getLivecodeKindDefinition(node.kind).label} canvas node source`}
         /></div>;
-        return <div className={`livecode-node-surface ${visible ? "interactive" : ""} ${node.kind === "strudel" ? "livecode-node-strudel-visual-output" : ""}`} onPointerDown={visible ? () => onEdit?.(element.id) : undefined}>
+        return <div className={`livecode-node-surface ${visible ? "interactive" : ""} ${node.kind === "strudel" ? "livecode-node-strudel-visual-output" : ""}`} onPointerDown={visible && node.view !== "slideshow" ? () => onEdit?.(element.id) : undefined}>
           {runtime}
           {node.kind === "strudel" && isLivecodeNodeRunnable(node) && <LivecodeNodeEditor
             node={node}

@@ -84,6 +84,26 @@ for (const target of targets) {
         /(keyTest:function\(e\)\{return e\[[A-Za-z_$][A-Za-z0-9_$]*\.tW\.CTRL_OR_CMD\]&&!e\.shiftKey)(&&e\.code===[A-Za-z_$][A-Za-z0-9_$]*\.aU\.BRACKET_(?:LEFT|RIGHT))/g,
         '$1&&!e.altKey$2'
       )
+      // Underscores owns the `?` shortcut and opens its documentation panel.
+      // Excalidraw wires the same key both through its shortcut action registry
+      // and through the editor keydown handler, so disable only those keyboard
+      // paths while keeping the native Help action available from its menu.
+      .replace(
+        /keyTest:\s*event\s*=>\s*event\.key\s*===\s*[A-Za-z_$][A-Za-z0-9_$]*\.KEYS\.QUESTION_MARK/g,
+        'keyTest: () => false'
+      )
+      .replace(
+        /keyTest:function\(([A-Za-z_$][A-Za-z0-9_$]*)\)\{return \1\.key===([A-Za-z_$][A-Za-z0-9_$]*)\.tW\.QUESTION_MARK\}/g,
+        'keyTest:function(){return false}'
+      )
+      .replace(
+        /if \(event\.key === [A-Za-z_$][A-Za-z0-9_$]*\.KEYS\.QUESTION_MARK\) \{/g,
+        'if (false) {'
+      )
+      .replace(
+        /if\(([A-Za-z_$][A-Za-z0-9_$]*)\.key!==([A-Za-z_$][A-Za-z0-9_$]*)\.tW\.QUESTION_MARK\)\{/g,
+        'if(true){'
+      )
       // Replace deprecated unload event with pagehide to satisfy browser policies
       .replace(/(EVENT\\?\[\\?["']UNLOAD\\?["']\\?\]\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2')
       .replace(/(\bUNLOAD\s*=\s*)(\\?["'])unload\2/gi, '$1$2pagehide$2');

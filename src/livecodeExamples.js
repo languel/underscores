@@ -39,6 +39,635 @@ export const LIVECODE_TEMPLATES = Object.freeze({
   [LIVECODE_KINDS.svg]: defaultLivecodeSource(LIVECODE_KINDS.svg),
 });
 
+// A deliberately spacious welcome-tour bed with a complete 64-cycle form.
+// At 80 BPM, one four-beat cycle lasts three seconds, so the arrangement takes
+// 3:12 before it repeats: intro, first groove, lift, bridge, and return.
+// Each layer owns the same form but changes its phrase, density, and timbre at
+// section boundaries, so the result develops like a short song rather than a
+// collection of independently looping patterns.
+export const WELCOME_STRUDEL_SOURCE = `// Welcome tour trip-hop backdrop — 80 BPM, 64 cycles / 3:12 before repeat.
+setcpm(20)
+
+// 0–8 intro · 8–24 first groove · 24–40 lift · 40–48 bridge · 48–64 return
+// The kick stays sparse at first, then changes its phrase for the lift and
+// plays a shorter answer through the bridge before the final return.
+$: arrange(
+  [8, s("~")],
+  [16, s("bd ~ ~ ~ ~ bd ~ ~ bd ~ ~ ~ ~ ~ bd ~").slow(2)],
+  [16, s("bd ~ ~ bd ~ bd ~ ~ bd ~ ~ ~ ~ bd ~ ~").slow(2).every(4, x => x.rev())],
+  [8, s("bd ~ ~ ~ ~ ~ bd ~").slow(2)],
+  [16, s("bd ~ ~ bd ~ bd ~ ~ bd ~ ~ bd ~ bd ~ ~").slow(2).every(8, x => x.rev())],
+)
+  .gain(0.28)
+  .lpf("<760 900 1100 820>")
+
+// Snare/rim gives the verses their laid-back backbeat, then recedes in the
+// bridge so the return feels earned instead of merely louder.
+$: arrange(
+  [8, s("~")],
+  [16, s("~ ~ sd ~ ~ ~ ~ sd").slow(2)],
+  [16, s("~ ~ sd ~ ~ sd ~ sd").slow(2).every(4, x => x.rev())],
+  [8, s("~ ~ ~ ~ ~ sd ~ ~").slow(2).degradeBy(0.2)],
+  [16, s("~ ~ sd ~ ~ sd ~ sd").slow(2).every(8, x => x.rev())],
+)
+  .gain(0.18)
+  .lpf(1750)
+  .room(0.12)
+
+// Hats enter late, open into the lift, disappear for the bridge, then return
+// with a restrained swing and a few naturally missing strokes.
+$: arrange(
+  [8, s("~")],
+  [16, s("hh ~ hh [~ hh] hh ~ ~ hh").slow(2).swing(4).degradeBy(0.14)],
+  [16, s("hh*2 ~ hh*2 [hh ~] hh*2 ~ [~ hh] hh*2").slow(2).swing(4).degradeBy(0.08)],
+  [8, s("~")],
+  [16, s("hh*2 ~ [hh ~ hh] hh*2 ~ hh [~ hh] hh*2").slow(2).swing(4).degradeBy(0.1)],
+)
+  .gain(0.11)
+  .lpf(3600)
+  .pan("-0.22 0.16 -0.08 0.28")
+
+// The bass gets a distinct response in each section: held and patient in the
+// first groove, more mobile in the lift, almost absent in the bridge, then
+// returning with the harmony turned around.
+$: arrange(
+  [8, s("~")],
+  [16, note("<d2 ~ d2 bb1 c2 ~ bb1 c2>").slow(4)],
+  [16, note("<d2 f2 bb1 c2 d2 a1 bb1 c2>").slow(4).every(4, x => x.rev())],
+  [8, note("<d2 ~ ~ c2>").slow(4)],
+  [16, note("<d2 d2 bb1 c2 f2 a1 bb1 c2>").slow(4).every(8, x => x.rev())],
+)
+  .s("triangle")
+  .lpf("<360 480 580 420 640 460 520 700>")
+  .gain(0.2)
+
+// The chord bed remains the steady centre, but its voicings widen in the lift,
+// thin to four suspended changes in the bridge, then resolve for the return.
+$: arrange(
+  [8, note("<[d3,f3,a3] [c3,f3,a3] [bb2,d3,f3] [c3,e3,g3]>").slow(8)],
+  [16, note("<[d3,f3,a3] [c3,f3,a3] [bb2,d3,f3] [c3,e3,g3] [d3,f3,a3] [f3,a3,c4] [bb2,d3,f3] [c3,e3,g3]>").slow(8)],
+  [16, note("<[d3,f3,a3,c4] [c3,f3,a3,d4] [bb2,d3,f3,a3] [c3,e3,g3,b3] [d3,f3,a3,c4] [f3,a3,c4,e4] [bb2,d3,f3,a3] [c3,e3,g3,b3]>").slow(8)],
+  [8, note("<[d3,a3,c4] [bb2,f3,a3] [c3,g3,bb3] [d3,a3,c4]>").slow(8)],
+  [16, note("<[d3,f3,a3] [c3,f3,a3] [bb2,d3,f3] [c3,e3,g3] [f3,a3,c4] [d3,f3,a3] [bb2,d3,f3] [c3,e3,g3]>").slow(8)],
+)
+  .s("sine")
+  .lpf("<1100 1450 1850 1300>")
+  .room("<0.32 0.42 0.5 0.38>")
+  .gain(0.09)
+
+// A barely audible high response only appears between phrases. It supplies
+// air and a sense of motion without competing with the guide or spoken demo.
+$: arrange(
+  [8, note("~ d5 ~ a4").slow(4)],
+  [16, note("~ ~ a4 ~ ~ c5 ~ d5").slow(4).degradeBy(0.38)],
+  [16, note("~ a4 ~ c5 ~ d5 ~ f5").slow(4).degradeBy(0.3)],
+  [8, note("~ ~ d5 ~").slow(4)],
+  [16, note("~ a4 ~ c5 ~ d5 ~ a4").slow(4).degradeBy(0.34)],
+)
+  .s("sine")
+  .lpf(2400)
+  .room(0.58)
+  .pan("-0.35 0.35")
+  .gain(0.035)`;
+
+// A brighter companion demo for presentations and open-ended drawing. Its
+// 64-cycle arrangement lasts 3:33 at 72 BPM before repeating, moving through
+// mist, pulse, bloom, a weightless bridge, and a resolved afterglow.
+export const AIRBIENT_STRUDEL_SOURCE = `// airbient — atmospheric downtempo / ambient IDM, 72 BPM, 3:33 before repeat.
+setcpm(18)
+
+// 0–8 mist · 8–24 pulse · 24–40 bloom · 40–48 weightless · 48–64 afterglow
+// The main pad carries the song. Each section has its own voicing and contour,
+// with long attacks and releases so the harmony seems to breathe.
+$: arrange(
+  [8, note("<[c3,e3,g3,d4] [e3,g3,b3,d4] [a2,c3,e3,b3] [f2,a2,c3,e3]>").slow(8)],
+  [16, note("<[c3,e3,g3,d4] [e3,g3,b3,d4] [a2,c3,e3,b3] [f2,a2,c3,e3] [d3,f3,a3,e4] [g2,a2,d3,g3] [e3,g3,b3,d4] [a2,c3,e3,b3]>").slow(16)],
+  [16, note("<[c3,e3,g3,d4] [g2,b2,d3,a3] [a2,c3,e3,b3] [e3,g3,b3,d4] [f2,a2,c3,e3] [d3,f3,a3,e4] [g2,a2,d3,g3] [c3,e3,g3,d4]>").slow(16)],
+  [8, note("<[f2,a2,c3,e3] [c3,e3,g3,d4] [d3,f3,a3,e4] [g2,a2,d3,g3]>").slow(8)],
+  [16, note("<[c3,e3,g3,d4] [e3,g3,b3,d4] [a2,c3,e3,b3] [f2,a2,c3,e3] [d3,f3,a3,e4] [g2,b2,d3,a3] [f2,a2,c3,e3] [c3,e3,g3,d4]>").slow(16)],
+)
+  .s("sine")
+  .attack(1.4)
+  .release(3.8)
+  .lpf("<1050 1450 2100 1650>")
+  .phaser("<0.08 0.12 0.18 0.1>")
+  .phaserdepth(0.22)
+  .room(0.72)
+  .gain(0.072)
+
+// A second, higher breath layer appears only where the form needs light. It
+// widens during the bloom, disappears in the bridge, and returns very softly.
+$: arrange(
+  [8, note("<e4 ~ b4 ~>").slow(8)],
+  [16, note("<~ g4 ~ b4 ~ e5 ~ d5>").slow(16).degradeBy(0.2)],
+  [16, note("<e4 g4 b4 d5 e5 d5 b4 g4>").slow(16).degradeBy(0.12)],
+  [8, s("~")],
+  [16, note("<~ e4 ~ g4 ~ d5 ~ b4>").slow(16).degradeBy(0.24)],
+)
+  .s("sine")
+  .attack(1.8)
+  .release(4.2)
+  .lpf(2600)
+  .vib(0.18)
+  .vibmod(0.06)
+  .room(0.82)
+  .pan("-0.38 0.34")
+  .gain(0.026)
+
+// The low pulse arrives after the intro. It becomes more melodic in the bloom,
+// leaves only two held notes under the bridge, then settles home on C.
+$: arrange(
+  [8, s("~")],
+  [16, note("<c2 ~ e2 ~ a1 ~ f1 ~>").slow(8)],
+  [16, note("<c2 g1 a1 e2 f1 d2 g1 c2>").slow(8).every(8, x => x.rev())],
+  [8, note("<f1 ~ c2 ~>").slow(8)],
+  [16, note("<c2 e2 a1 f1 d2 g1 f1 c2>").slow(8)],
+)
+  .s("triangle")
+  .attack(0.08)
+  .release(1.35)
+  .lpf("<380 520 680 460>")
+  .gain(0.135)
+
+// A small tape-like melody answers the harmony rather than running constantly.
+// Delay and missing notes create space between phrases without masking speech.
+$: arrange(
+  [8, note("~ ~ e5 ~ ~ b4 ~ ~").slow(8)],
+  [16, note("~ e5 ~ g5 ~ d5 [~ e5] ~").slow(8).degradeBy(0.2)],
+  [16, note("e5 ~ g5 b5 ~ a5 [g5 e5] ~").slow(8).degradeBy(0.12)],
+  [8, note("~ c5 ~ ~ ~ g4 ~ ~").slow(8)],
+  [16, note("~ e5 g5 ~ d5 ~ b4 [~ c5]").slow(8).degradeBy(0.16)],
+)
+  .s("sine")
+  .attack(0.03)
+  .release(0.9)
+  .delay(0.32)
+  .delaytime(0.375)
+  .delayfeedback(0.28)
+  .room(0.62)
+  .pan("0.28 -0.24 0.34 -0.16")
+  .gain(0.042)
+
+// Soft drums enter gradually: a heartbeat in the pulse section, a slightly
+// more articulated pattern in the bloom, silence in the bridge, then a light
+// final groove that thins as the harmony resolves.
+$: arrange(
+  [8, s("~")],
+  [16, s("bd ~ ~ ~ ~ ~ bd ~").slow(2)],
+  [16, s("bd ~ ~ [bd ~] ~ bd ~ ~").slow(2).every(8, x => x.rev())],
+  [8, s("~")],
+  [16, s("bd ~ ~ ~ ~ bd ~ [~ bd]").slow(2).degradeBy(0.08)],
+)
+  .gain(0.15)
+  .lpf(820)
+
+$: arrange(
+  [8, s("~")],
+  [16, s("hh ~ ~ hh ~ [~ hh] ~ hh").slow(2).swing(4).degradeBy(0.22)],
+  [16, s("hh*2 ~ hh [~ hh] hh*2 ~ [hh ~] hh").slow(2).swing(4).degradeBy(0.14)],
+  [8, s("~")],
+  [16, s("hh ~ hh [~ hh] ~ hh ~ [hh ~]").slow(2).swing(4).degradeBy(0.2)],
+)
+  .gain(0.052)
+  .lpf(4200)
+  .pan("-0.18 0.22")
+
+// Tiny digital glints are most active at the centre of the composition and
+// fade back into the pad before the repeat.
+$: arrange(
+  [8, s("~")],
+  [16, note("~ c6 ~ ~ g5 ~ ~ e6").slow(8).degradeBy(0.34)],
+  [16, note("c6 ~ [g5 a5] ~ e6 ~ d6 ~").slow(8).degradeBy(0.24)],
+  [8, note("~ ~ a5 ~").slow(8)],
+  [16, note("~ c6 ~ g5 ~ e6 ~ ~").slow(8).degradeBy(0.38)],
+)
+  .s("sine")
+  .attack(0.01)
+  .release(0.22)
+  .crush("<16 14 12 16>")
+  .delay(0.24)
+  .delaytime(0.25)
+  .delayfeedback(0.22)
+  .room(0.7)
+  .pan("-0.4 0.4 -0.16 0.2")
+  .gain(0.018)`;
+
+// A separate, sunnier composition rather than another variation on the tour
+// backdrop. The 72-cycle form lasts 3:16 at 88 BPM and is led by syncopated
+// major-key chords, a rising arpeggio, and a buoyant broken beat.
+export const SUNROOM_STRUDEL_SOURCE = `// sunroom — bright downtempo electronica, 88 BPM, 72 cycles / 3:16 before repeat.
+setcpm(22)
+
+// 0–12 windows open · 12–28 first walk · 28–44 wide sky
+// 44–56 floating middle · 56–72 home
+// Short, syncopated chord gestures replace the long dark wash of the other
+// demos. The voicings climb through the middle and settle on C at the end.
+$: arrange(
+  [12, note("<[c4,e4,g4,b4] ~ [e4,g4,b4,d5] ~ [f4,a4,c5,e5] ~ [g4,a4,d5,e5] ~>").slow(12)],
+  [16, note("<[c4,e4,g4,b4] ~ [g3,b3,d4,a4] [a3,c4,e4,g4] ~ [f3,a3,c4,e4] ~ [g3,b3,d4,e4] ~>").slow(16)],
+  [16, note("<[c4,e4,g4,b4] [e4,g4,b4,d5] ~ [f4,a4,c5,e5] [g4,b4,d5,e5] ~ [a3,c4,e4,g4] [g3,b3,d4,a4] ~ [f3,a3,c4,e4] ~>").slow(16)],
+  [12, note("<[a3,c4,e4,g4] ~ [e4,g4,b4,d5] ~ [f4,a4,c5,e5] ~ [c4,e4,g4,b4] ~>").slow(12)],
+  [16, note("<[c4,e4,g4,b4] ~ [g3,b3,d4,a4] [a3,c4,e4,g4] ~ [f3,a3,c4,e4] [g3,b3,d4,e4] ~ [c4,e4,g4,b4] ~>").slow(16)],
+)
+  .s("triangle")
+  .attack(0.12)
+  .release(1.8)
+  .lpf("<1700 2300 3100 2100>")
+  .room(0.44)
+  .delay(0.12)
+  .delaytime(0.25)
+  .delayfeedback(0.16)
+  .gain(0.075)
+
+// A circular arpeggio is present from the start, changes register in the wide
+// section, and becomes a slower call-and-response during the floating middle.
+$: arrange(
+  [12, note("<c5 e5 g5 b5 e5 g5 d5 b4>").slow(6)],
+  [16, note("<c5 e5 g5 b5 d5 g5 e5 b4>").slow(4).degradeBy(0.08)],
+  [16, note("<e5 g5 b5 d6 c6 g5 e5 d5>").slow(4).every(8, x => x.rev())],
+  [12, note("<a4 ~ e5 ~ g5 ~ c6 ~>").slow(6)],
+  [16, note("<c5 e5 g5 b5 d6 b5 g5 e5>").slow(4).degradeBy(0.1)],
+)
+  .s("sine")
+  .attack(0.02)
+  .release(0.55)
+  .delay(0.22)
+  .delaytime(0.375)
+  .delayfeedback(0.2)
+  .room(0.5)
+  .pan("-0.3 0.24 -0.12 0.34")
+  .gain(0.047)
+
+// The bass is rounded and melodic, stepping upward into each new section
+// instead of sitting on a single root pattern.
+$: arrange(
+  [12, note("<c2 ~ g1 ~ c2 ~ e2 ~>").slow(6)],
+  [16, note("<c2 g1 a1 e2 f1 c2 g1 e2>").slow(8)],
+  [16, note("<c2 e2 f2 g2 a1 e2 g1 c2>").slow(8).every(8, x => x.rev())],
+  [12, note("<a1 ~ e2 ~ f1 ~ c2 ~>").slow(6)],
+  [16, note("<c2 g1 a1 e2 f1 g1 c2 ~>").slow(8)],
+)
+  .s("triangle")
+  .attack(0.04)
+  .release(0.72)
+  .lpf("<520 720 920 640>")
+  .gain(0.13)
+
+// The kick has a light broken-beat bounce. It waits through most of the intro,
+// becomes more animated under the wide section, then simplifies for the close.
+$: arrange(
+  [12, s("~ ~ ~ ~ bd ~ ~ ~").slow(2)],
+  [16, s("bd ~ ~ bd ~ ~ bd ~").slow(2)],
+  [16, s("bd ~ [~ bd] ~ bd ~ bd ~").slow(2).every(8, x => x.rev())],
+  [12, s("bd ~ ~ ~ ~ ~ bd ~").slow(2)],
+  [16, s("bd ~ ~ bd ~ bd ~ ~").slow(2).degradeBy(0.06)],
+)
+  .gain(0.17)
+  .lpf(980)
+
+// Backbeat and hats trade activity rather than arriving as a rigid drum loop.
+$: arrange(
+  [12, s("~")],
+  [16, s("~ ~ sd ~ ~ ~ ~ sd").slow(2)],
+  [16, s("~ sd ~ ~ ~ ~ sd [~ sd]").slow(2).every(8, x => x.rev())],
+  [12, s("~")],
+  [16, s("~ ~ sd ~ ~ ~ ~ sd").slow(2).degradeBy(0.1)],
+)
+  .gain(0.095)
+  .lpf(2400)
+  .room(0.16)
+
+$: arrange(
+  [12, s("hh ~ ~ hh ~ ~ [~ hh] ~").slow(3).swing(4).degradeBy(0.22)],
+  [16, s("hh ~ hh [~ hh] hh ~ ~ hh").slow(2).swing(4).degradeBy(0.15)],
+  [16, s("hh*2 ~ [hh ~] hh*2 ~ hh [~ hh]").slow(2).swing(4).degradeBy(0.1)],
+  [12, s("hh ~ ~ ~ [~ hh] ~ hh ~").slow(3).swing(4).degradeBy(0.24)],
+  [16, s("hh ~ hh [~ hh] ~ hh ~ [hh ~]").slow(2).swing(4).degradeBy(0.18)],
+)
+  .gain(0.054)
+  .lpf(4600)
+  .pan("-0.2 0.24")
+
+// A simple, optimistic melody only arrives after the groove is established.
+// It peaks in the wide section, rests in the middle, and returns as a shorter
+// closing phrase so the final minute feels like home rather than another loop.
+$: arrange(
+  [12, s("~")],
+  [16, note("~ ~ e5 g5 ~ a5 g5 ~").slow(8).degradeBy(0.16)],
+  [16, note("e5 g5 a5 c6 b5 g5 e5 d5").slow(8).degradeBy(0.08)],
+  [12, note("~ ~ a5 ~ ~ g5 ~ ~").slow(12)],
+  [16, note("~ e5 g5 a5 ~ g5 e5 c5").slow(8).degradeBy(0.14)],
+)
+  .s("sine")
+  .attack(0.04)
+  .release(0.8)
+  .vib(0.12)
+  .vibmod(0.035)
+  .delay(0.26)
+  .delaytime(0.5)
+  .delayfeedback(0.2)
+  .room(0.6)
+  .pan("0.28 -0.18 0.36 -0.26")
+  .gain(0.036)`;
+
+// A full-length sunny hip-hop composition supplied as a standalone demo.
+// Its 88-cycle arrangement lasts approximately 4:11 at 84 BPM.
+export const SUNDAY_WRLD_STRUDEL_SOURCE = `// ============================================================================
+// "SUNDAY WRLD"
+// Runtime: 88 cycles @ 84 BPM = ~4 minutes, 11 seconds
+// ============================================================================
+
+setcpm(84 / 4); // 84 BPM (1 cycle = 1 bar of 4/4)
+
+// ----------------------------------------------------------------------------
+// 1. TEXTURE & FOUNDATION
+// ----------------------------------------------------------------------------
+
+// Constant dusty vinyl warmth & needle hum
+const vinyl = sound("crackle")
+  .density(12)
+  .lpf(2800)
+  .gain(0.06);
+
+// ----------------------------------------------------------------------------
+// 2. DRUM STEMS (Dusty Hip-Hop Breakbeat)
+// ----------------------------------------------------------------------------
+
+// Full hip-hop break with syncopated kick and ghost notes
+const drums_full = stack(
+  // Thumping kick
+  s("<[bd:3 ~ [~ bd:3] ~] [bd:3 ~ ~ bd:3] [bd:3 ~ [~ bd:3] ~] [~ bd:3 ~ [~ bd:3]]>")
+    .gain(0.88).bank("RolandTR909"),
+  // Crisp snare and woody rim on 2 and 4 with subtle ghost rolls
+  s("<[~ [sd:2,rim] ~ [sd:2,rim]] [~ [sd:2,rim] ~ [sd:2,rim]] [~ [sd:2,rim] ~ [sd:2,rim]] [~ [sd:2,rim] ~ [sd:2,rim [~ sd:1*0.4]]]>")
+    .gain(0.82).bank("RolandTR808"),
+  // Swung 16th hats with dynamic accenting
+  s("hh*8")
+    .gain("<[0.72 0.35 0.82 0.4 0.72 0.35 0.85 0.45]>")
+    .lpf(7200),
+  // Gentle open hat breathing on the offbeats
+  s("<[~ ~ [~ oh:1*0.35] ~] [~ ~ ~ [~ oh:1*0.35]]>")
+);
+
+// Lifted chorus drums with shaker / tambourine sizzle
+const drums_chorus = stack(
+  drums_full,
+  s("hh:1*16").gain(0.22).pan(0.35)
+);
+
+// Stripped-down intro/outro beat
+const drums_sparse = stack(
+  s("bd:3 ~ ~ ~").gain(0.7),
+  s("~ ~ rim ~").gain(0.6),
+  s("hh*4").gain(0.4)
+);
+
+// Muffled low-pass pulse for the breakdown
+const drums_muffled = stack(
+  s("bd:3 ~ ~ [~ bd:3]").gain(0.65).lpf(340),
+  s("~ ~ rim:1 ~").gain(0.35).room(0.5).lpf(900)
+);
+
+// ----------------------------------------------------------------------------
+// 3. THE BASSLINES
+// ----------------------------------------------------------------------------
+
+// Rubber, flatwound vintage bass tone
+const bassTone = (pat) =>
+  pat.sound("sawtooth")
+    .lpf(380)
+    .lpq(2.8)
+    .decay(0.32)
+    .sustain(0.28)
+    .gain(0.9);
+
+// Verse walking bass (C -> Em -> F -> G)
+const bass_verse = bassTone(
+  note("<[c2 [~ c3] [g2 ~] [a2 b2]] [e2 [~ b2] [g2 ~] [e2 g2]] [f2 [~ c3] [a2 ~] [g2 f2]] [g2 [~ d3] [b2 a2] [g2 d2]]>")
+);
+
+// Chorus bouncy bass with octave leaps (F -> G -> C -> Am)
+const bass_chorus = bassTone(
+  note("<[f2 [~ c3] [f2 a2] [c3 ~]] [g2 [~ d3] [g2 b2] [d3 ~]] [c2 [~ c3] [g2 e2] [g2 ~]] [a2 [~ e3] [c3 b2] [a2 g2]]>")
+);
+
+// Climax energetic bass with octave slap feel
+const bass_climax = bassTone(
+  note("<[[f2 f3] [~ c3] [f2 f3] [a2 c3]] [[g2 g3] [~ d3] [g2 g3] [b2 d3]] [[c2 c3] [~ g2] [c2 c3] [e3 g3]] [[a2 a3] [~ e3] [c3 b2] [a2 g2]]>")
+);
+
+// Outro gentle resolve
+const bass_outro = bassTone(
+  note("<[c2 ~ [g2 ~] [e2 ~]] [f2 ~ [c2 ~] [a1 ~]] [g1 ~ [d2 ~] [g2 ~]] [c2 ~ ~ ~]>")
+);
+
+// ----------------------------------------------------------------------------
+// 4. CHORDS & STRUMS (Acoustic Rhythm & Warm Electric Piano)
+// ----------------------------------------------------------------------------
+
+const guitarTone = (pat) =>
+  pat.sound("triangle")
+    .lpf(1500)
+    .decay(0.22)
+    .sustain(0.12)
+    .gain(0.62);
+
+const guitar_verse = guitarTone(
+  note("<[c3,e3,g3,c4] [b2,e3,g3,b3] [c3,f3,a3,c4] [b2,d3,g3,b3]>").struct("~ 1 [~ 1] 1")
+);
+
+const guitar_chorus = guitarTone(
+  note("<[c3,f3,a3,c4] [b2,d3,g3,b3] [c3,e3,g3,c4] [c3,e3,a3,c4]>").struct("~ 1 [~ 1] 1")
+);
+
+// Soft Rhodes/organ pad that fills the chorus with nostalgic warmth
+const pad_chorus = note("<[c3,f3,a3,c4] [b2,d3,g3,b3] [c3,e3,g3,c4] [c3,e3,a3,c4]>")
+  .sound("sine")
+  .attack(0.25)
+  .decay(0.5)
+  .sustain(0.6)
+  .release(0.4)
+  .gain(0.26)
+  .lpf(1100);
+
+// ----------------------------------------------------------------------------
+// 5. HOOKS & TOY INSTRUMENTS
+// ----------------------------------------------------------------------------
+
+// Melodica / Whistle indie hook (single continuous mini-notation string)
+const melodica_hook = note(
+  "<[~ a4 [c5 e5] [f5 ~] [e5 d5]] [~ b4 [d5 f5] [g5 ~] [f5 e5]] [~ g4 [c5 e5] [g5 ~] [e5 d5]] [c5 [~ a4] [g4 e4] [c4 ~]] [~ a4 [c5 e5] [f5 ~] [e5 d5]] [~ b4 [d5 g5] [f5 ~] [d5 b4]] [c5 [~ e5] [g5 a5] [g5 e5]] [c5 ~ ~ ~]>"
+)
+  .sound("triangle")
+  .lpf(1900)
+  .lpq(2)
+  .attack(0.04)
+  .decay(0.35)
+  .sustain(0.42)
+  .gain(0.52)
+  .room(0.3);
+
+// Sparkling Glockenspiel / Music Box counter-melody
+const glockenspiel = note(
+  "<[~ e6 [~ g6] c6] [~ g6 [~ b6] d6] [~ e6 [~ a6] c7] [~ d6 [~ b6] g6]>"
+)
+  .sound("sine")
+  .decay(0.2)
+  .sustain(0)
+  .gain(0.42)
+  .delay(0.22)
+  .delaytime(0.25)
+  .delayfeedback(0.35)
+  .pan(0.6);
+
+// Playful retro Casio VL-Tone style computer bleeps
+const casio_bleeps = note(
+  "<[~ c5*2 ~ g5] [~ d5*2 ~ a5] [~ e5*2 ~ c6] [~ g5*2 ~ b5]>"
+)
+  .sound("square")
+  .lpf(2500)
+  .decay(0.06)
+  .sustain(0)
+  .gain(0.2)
+  .pan(-0.6);
+
+// ----------------------------------------------------------------------------
+// 6. SECTIONS DEFINITION
+// ----------------------------------------------------------------------------
+
+// Section 1: Needle drop, vinyl crackle, gentle chords, bass walks in at cycle 4
+const intro_sec = stack(
+  vinyl,
+  guitar_verse,
+  casio_bleeps,
+  bass_verse.mask("<0 0 0 0 1 1 1 1>")
+);
+
+// Section 2: Verse 1 - The full drum break drops, walking bass takes the lead
+const verse1_sec = stack(
+  vinyl,
+  drums_full,
+  bass_verse,
+  guitar_verse,
+  glockenspiel.mask("<0 0 0 0 0 0 0 0 1 1 1 1 1 1 1 1>")
+);
+
+// Section 3: Chorus 1 - Sunny Melodica theme + tambourines + organ warmth
+const chorus1_sec = stack(
+  vinyl,
+  drums_chorus,
+  bass_chorus,
+  guitar_chorus,
+  pad_chorus,
+  melodica_hook
+);
+
+// Section 4: Verse 2 - Carefree stroll with Casio chirps and glockenspiel interplay
+const verse2_sec = stack(
+  vinyl,
+  drums_full,
+  bass_verse,
+  guitar_verse,
+  glockenspiel,
+  casio_bleeps
+);
+
+// Section 5: Breakdown - Coffee shop moment; drums muffle, chords and solo toy piano
+const breakdown_sec = stack(
+  vinyl,
+  drums_muffled,
+  guitar_verse.gain(0.4),
+  glockenspiel,
+  bass_verse.lpf(260).gain(0.7)
+);
+
+// Section 6: Big Climax - Everything intertwined at peak Mondo sunshine energy!
+const climax_sec = stack(
+  vinyl,
+  drums_chorus,
+  bass_climax,
+  guitar_chorus,
+  pad_chorus,
+  melodica_hook,
+  glockenspiel,
+  casio_bleeps
+);
+
+// Section 7: Outro - Drums strip back, bass bids farewell, fading to tape silence
+const outro_sec = stack(
+  vinyl,
+  drums_sparse.mask("<1 1 1 1 1 1 0 0 0 0 0 0>"),
+  bass_outro,
+  glockenspiel.mask("<1 1 1 1 1 1 1 1 0 0 0 0>").gain(0.3)
+);
+
+// ----------------------------------------------------------------------------
+// 7. MASTER ARRANGEMENT (88 Cycles = ~4:11 Total Duration)
+// ----------------------------------------------------------------------------
+
+arrange(
+  [8,  intro_sec],     // 0:00 - 0:23  The Alarm & Needle Drop
+  [16, verse1_sec],    // 0:23 - 1:08  Morning Stroll (Beat Drops)
+  [12, chorus1_sec],   // 1:08 - 1:42  The Sunny Melodica Hook
+  [16, verse2_sec],    // 1:42 - 2:28  Whimsical Play & Casio Chirps
+  [8,  breakdown_sec], // 2:28 - 2:51  The Coffee Shop Interlude
+  [16, climax_sec],    // 2:51 - 3:37  Full Mondo Groove (Peak Energy)
+  [12, outro_sec]      // 3:37 - 4:11  Walking Into The Distance
+);`;
+
+// A 160-cycle, eight-section IDM composition supplied as a standalone demo.
+// At 174 BPM the complete form lasts approximately 3:41 before repeating.
+export const UNDERLOOPED_STRUDEL_SOURCE = `setcpm(174/4);
+
+const ch_a = "<[a2,e3,g3,c4,b4] [f#2,e3,a3,c4,e4] [f2,c3,e3,a3,b3] [e2,b2,d3,f3,g#3]>";
+const ch_b = "<[c3,g3,bb3,d4,f4] [d3,a3,c4,e4,f#4] [f2,c3,eb3,a3,c4] [e2,b2,d3,g#3,d4]>";
+
+const rhodes = note(ch_a).sound("triangle").lpf(sine.range(1200,3200).slow(8)).attack(0.03).decay(0.65).sustain(0.3).gain(0.48).room(0.4).color("#e6e6e6");
+const pad = note(ch_a).sound("sine").attack(0.4).decay(0.8).sustain(0.6).release(0.5).gain(0.28).lpf(1150).color("#888888");
+const rhodes_b = note(ch_b).sound("triangle").shape(0.25).lpf(3000).attack(0.03).decay(0.6).sustain(0.35).gain(0.5).room(0.4).color("#ffffff");
+const stabs = note(ch_a).struct("1 ~ 1 1 ~ 1 ~ 1").sound("triangle").shape(0.3).lpf(3200).decay(0.16).sustain(0.04).gain(0.45).color("#cccccc");
+
+const sub = note("<a1 f#1 f1 e1>").sound("sine").gain(0.72).lpf(165).color("#333333");
+const bass_walk = note("<[a1 [~ a2] [e2 g2] [c3 b2]] [f#1 [~ f#2] [c2 e2] [a2 c3]] [f1 [~ f2] [c2 e2] [a2 b2]] [e1 [~ e2] [b1 d2] [g#2 b2]]>").sound("sawtooth").shape(0.4).lpf(880).lpq(4.6).decay(0.22).sustain(0.14).gain(0.85).color("#666666");
+const bass_slap = note("<[[a1 a2] [e2 g2] [c3 e3] [b2 g2]] [[f#1 f#2] [c2 e2] [a2 c3] [e3 c3]] [[f1 f2] [c2 e2] [a2 b2] [e3 b2]] [[e1 e2] [b1 d2] [g#2 b2*2] [d3 c3 b2 a2]]>").sound("sawtooth").shape(0.45).lpf(1050).lpq(5).decay(0.2).sustain(0.1).gain(0.88).color("#aaaaaa");
+const bass_solo = note("<[a2 ~ [e3 ~] c3] [f#2 ~ [c3 ~] a2] [f2 ~ [c3 ~] a2] [e2 ~ ~ ~]>").sound("sawtooth").shape(0.3).lpf(750).lpq(3.5).decay(0.3).sustain(0.2).gain(0.8).color("#555555");
+
+const dr_core = stack(
+  s("<[bd ~ [~ bd] ~] [~ bd ~ [bd bd]] [bd ~ [~ bd] ~] [~ bd [bd*2 ~] ~]>").shape(0.35).gain(0.94).color("#8c8c8c"),
+  s("<[~ sd ~ sd] [~ sd ~ [sd*2]] [~ sd ~ sd] [~ [sd*2] ~ [sd*4]]>").shape(0.3).gain(0.86).color("#cccccc"),
+  s("hh*16").degradeBy(0.14).gain("<[0.6 0.2 0.5 0.22 0.7 0.3 0.5 0.2 0.62 0.2 0.5 0.3 0.78 0.35 0.6 0.3]>").pan("<[-0.5 0.5 -0.3 0.3]>").lpf(9000).color("#4d4d4d"),
+  s("[~ rim ~ ~]*2").speed("<1.5 1.9 1.3 2.1>").gain(0.44).color("#777777")
+);
+const dr_drill = s("sd:2*16").degradeBy(0.5).sometimesBy(0.4, x => x.ply(2)).speed(rand.range(1.1, 3.4)).pan(rand.range(-0.8, 0.8)).crush("<0 0 5 3 0 6>").gain(0.7).color("#ffffff");
+const dr_full = stack(dr_core, dr_drill, s("hh:1*8").gain(0.22).pan(0.35).color("#666666"), s("<cr ~ ~ ~>").gain(0.55).room(0.45).color("#ffffff"));
+const dr_flim = stack(s("bd ~ ~ [~ bd]").gain(0.75).color("#8c8c8c"), s("~ [rim:1,sd:1*0.4] ~ rim:1").gain(0.65).color("#cccccc"), s("hh*8").degradeBy(0.1).gain("<[0.42 0.18 0.38 0.18 0.52 0.22 0.38 0.18]>").color("#4d4d4d"), s("sd:2*8").degradeBy(0.7).speed(rand.range(1.2, 2.6)).pan(rand.range(-0.6, 0.6)).gain(0.45).color("#ffffff"));
+const dr_glitch = stack(s("<[~ [cp*4] ~ ~] [~ ~ [sd*8] ~] [~ [rim*16] ~ ~] [~ ~ ~ [cp*8]]>").speed("<2.2 3.1 1.7 4.2>").crush("<8 4 3 6>").pan("<0.7 -0.7 0.5 -0.5>").gain(0.7).color("#e0e0e0"), s("<[~ ~ oh:1 ~] [~ ~ ~ [oh:1*2]]>").gain(0.35).color("#999999"));
+
+const lead_trill = note("<[[~ e4] [g4 a4] [c5 ~] [b4 a4]] [[~ d4] [f#4 a4] [c5 ~] [a4 f#4]] [[~ c4] [e4 a4] [b4 ~] [a4 g4]] [[f#4 ~] [e4 d#4] [b3 c4] [a3 ~]] [[~ e4] [g4 a4] [c5 d5] [e5 ~]] [[d5 ~] [b4 a4] [f#4 a4] [b4 ~]] [[c5 b4] [a4 g4] [e4 g4] [a4 ~]] [[a4 ~] [~ g4] [e4 ~] [~ ~]]>").sound("sawtooth").shape(0.38).lpf(sine.range(1600, 5600).slow(4)).lpq(4.6).attack(0.02).decay(0.32).sustain(0.36).gain(0.52).room(0.35).color("#ffffff");
+const lead_glass = note("<[[~ b5] [c6 e6] [g6 ~] [f#6 e6]] [[~ a5] [c6 e6] [f#6 ~] [e6 c6]] [[~ g5] [b5 d6] [e6 ~] [d6 b5]] [[c6 ~] [b5 a5] [f#5 d#5] [e5 ~]] [[~ b5] [c6 e6] [g6 a6] [b6 ~]] [[a6 ~] [f#6 e6] [d6 e6] [f#6 ~]] [[g6 f#6] [e6 d6] [b5 d6] [e6 ~]] [[e6 ~] [~ d6] [b5 ~] [~ ~]]>").sound("sine").decay(0.45).sustain(0.42).gain(0.48).delay(0.28).delaytime(0.1875).delayfeedback(0.42).room(0.45).color("#d4d4d4");
+const lead_arp = note("<[a4 c5 e5 g5 b5 g5 e5 c5] [f#4 a4 c5 e5 f#5 e5 c5 a4] [f4 a4 c5 e5 f5 e5 c5 a4] [e4 g#4 b4 d5 e5 d5 b4 g#4]>").sound("triangle").decay(0.15).sustain(0).gain(0.42).pan(sine.range(-0.6, 0.6).slow(2)).color("#b0b0b0");
+const bleeps = note("<[a5*4 c6*4] [f#5*4 d6*4] [f5*4 e6*4] [e5*8]>").sound("square").lpf(3600).decay(0.035).sustain(0).gain(0.18).pan("<-0.6 0.6 -0.4 0.4>").color("#ffffff");
+
+const s1 = stack(pad, rhodes, lead_glass.gain(0.35), bass_solo);
+const s2 = stack(pad, rhodes, dr_flim, sub, bass_walk, lead_arp);
+const s3 = stack(pad, rhodes, dr_full, sub, bass_walk, lead_trill, bleeps);
+const s4 = stack(pad, stabs, dr_full, dr_glitch, sub, bass_slap, lead_arp, bleeps);
+const s5 = stack(pad, rhodes, lead_glass, bass_solo, arrange([20, s("~")], [4, s("sd*16").shape(0.35).gain("<0.35 0.55 0.75 0.95>").speed("<1.3 1.8 2.4 3.4>").color("#ffffff")]));
+const s6 = stack(pad, rhodes_b, dr_full, dr_glitch, sub, bass_slap, lead_trill, lead_glass, lead_arp, bleeps);
+const s7 = stack(pad, rhodes.gain(0.35), dr_flim, bass_walk, lead_arp.gain(0.3), bleeps.gain(0.12));
+const s8 = stack(pad.gain(0.2), lead_glass.gain(0.35));
+
+arrange(
+  [16, s1],
+  [16, s2],
+  [32, s3],
+  [16, s4],
+  [24, s5],
+  [32, s6],
+  [16, s7],
+  [8,  s8]
+).pianoroll({ cycles: 4 });`;
+
 const p5Examples = Object.freeze([
   ...P5_EXAMPLES.map(example => ({ id: example.id, label: example.name, name: example.name, source: example.source, mode: example.mode })),
 ]);
@@ -599,9 +1228,9 @@ const tixyExamples = Object.freeze([
 ]);
 
 // A small, local Strudel library: the first entries teach one idea at a time,
-// while the final theme demonstrates several voices, effects, and a frame
-// visualizer in one editable node. Keep the source self-contained so examples
-// remain useful offline and can be freely modified after selection.
+// while the themed entries demonstrate several voices and effects in one
+// editable node. Keep the source self-contained so examples remain useful
+// offline and can be freely modified after selection.
 const strudelExamples = Object.freeze([
   {
     id: "starter",
@@ -664,6 +1293,36 @@ $: note("<c2 c2 a1 g1>")
   .gain(0.28)
 $: s("bd ~ bd ~, ~ sd ~ sd, hh*8")
   .gain(0.5)`,
+  },
+  {
+    id: "trip-hop-backdrop",
+    label: "Atmospheres · Trip-hop backdrop",
+    name: "Trip-hop backdrop",
+    source: WELCOME_STRUDEL_SOURCE,
+  },
+  {
+    id: "airbient",
+    label: "Atmospheres · airbient",
+    name: "airbient",
+    source: AIRBIENT_STRUDEL_SOURCE,
+  },
+  {
+    id: "sunroom",
+    label: "Songs · sunroom",
+    name: "sunroom",
+    source: SUNROOM_STRUDEL_SOURCE,
+  },
+  {
+    id: "sunday-wrld",
+    label: "Songs · SUNDAY WRLD",
+    name: "SUNDAY WRLD",
+    source: SUNDAY_WRLD_STRUDEL_SOURCE,
+  },
+  {
+    id: "underlooped",
+    label: "Songs · underlooped",
+    name: "underlooped",
+    source: UNDERLOOPED_STRUDEL_SOURCE,
   },
 ]);
 

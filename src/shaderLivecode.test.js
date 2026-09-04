@@ -11,8 +11,10 @@ import {
   SHADER_EXAMPLES,
   shaderSourceUsesFeedbackBuffer,
   SHADERTOY_MINIMAL_RAYMARCH_SOURCE,
+  SHADERTOY_QUARKSOUP_SOURCE,
   shaderExampleForSource,
   normalizeShaderSourceMode,
+  STARFIELD_FRAGMENT_SOURCE,
   STOKES_FLUID_FRAGMENT_SOURCE,
   validateShaderSource,
 } from "./shaderLivecode.js";
@@ -61,6 +63,14 @@ test("minimal mode initializes Twigl declaration-only loop variables for WebGL 2
   assert.match(explicit, /for\(float i=1\.,g;/);
 });
 
+test("quark soup keeps its mouse-reactive compact body and starfield uses standard GLSL", () => {
+  assert.match(SHADERTOY_QUARKSOUP_SOURCE, /m\.xy\/r/);
+  assert.equal(validateShaderSource(SHADERTOY_QUARKSOUP_SOURCE, { shaderDialect: "shadertoy" }).valid, true);
+  assert.match(STARFIELD_FRAGMENT_SOURCE, /#version 300 es/);
+  assert.match(STARFIELD_FRAGMENT_SOURCE, /void main\(\)/);
+  assert.equal(validateShaderSource(STARFIELD_FRAGMENT_SOURCE).valid, true);
+});
+
 test("minimal feedback bodies keep the compact buffer alias usable", () => {
   const source = "vec2 p=FC.xy/r.y*2e1+t;for(float i;i++<8.;)p+=sin(p+t/.2+i)*.4,p*=mat2(6,-8,8,6)/9.;o=vec4(tanh(length(fwidth(sin(p*.3)/.1))),texture(b,FC.xy/r));";
   const prepared = prepareShaderSource(source, "shadertoy");
@@ -81,8 +91,8 @@ test("minimal mode accepts common twigl classic boilerplate and aliases", () => 
   assert.match(prepared, /vec3 hsv\(/);
 });
 
-test("the shader catalog exposes the excalishader examples, Inkwash, and Stokes", () => {
-  assert.deepEqual(SHADER_EXAMPLES.map(example => example.id), ["hello", "minimal-raymarch", "rainbow", "shadow", "fluid", "inkwash", "stokes"]);
+test("the shader catalog exposes the bundled examples, Inkwash, and Stokes", () => {
+  assert.deepEqual(SHADER_EXAMPLES.map(example => example.id), ["hello", "minimal-raymarch", "quarksoup", "starfield", "shadow", "fluid", "inkwash", "stokes"]);
   SHADER_EXAMPLES.forEach(example => assert.equal(validateShaderSource(example.source, { shaderDialect: example.dialect }).valid, true));
   assert.equal(getShaderExample("fluid").mode, "feedback");
   assert.equal(shaderExampleForSource(FLUID_BRUSH_FRAGMENT_SOURCE)?.id, "fluid");

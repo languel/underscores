@@ -72,9 +72,27 @@ test("Getting started leads the contents and covers the first-session path", () 
     "start-panels",
     "start-commands",
     "start-keyboard",
+    "start-canvas-shortcuts",
     "start-patches",
     "start-teaching",
   ]);
+});
+
+test("the introductory page uses the Underscores sketch language", () => {
+  const topic = HELP_TOPICS.find(entry => entry.id === "start-underscores");
+  assert.equal(topic?.title, "What is _underscores_");
+  assert.match(topic?.body || "", /^_Underscores_ is an infinite creative computation canvas for performance, teaching, exploration and research\./);
+  assert.match(topic?.body || "", /single canvas _sketch_/);
+});
+
+test("Canvas shortcuts help is a dedicated Getting started page", () => {
+  const topic = HELP_TOPICS.find(entry => entry.id === "start-canvas-shortcuts");
+  assert.equal(topic?.title, "Canvas shortcuts");
+  assert.equal(documentationTopicSection(topic), "Getting started");
+  assert.match(topic?.body || "", /Press \? on the canvas/);
+  assert.match(topic?.body || "", /Open the Command Palette/);
+  assert.match(topic?.body || "", /Alt\+Shift\+- or >/);
+  assert.match(topic?.body || "", /\| Area \| Shortcut \| Action \|/);
 });
 
 test("the three priority areas each have a conceptual page set, not one placeholder", () => {

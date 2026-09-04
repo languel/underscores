@@ -177,6 +177,37 @@ export const renderMarkdownWithMath = (source, options = {}) => {
   return html;
 };
 
+// A Markdown slideshow uses a line containing only `---` as a slide break.
+// Keep fenced code intact so an example can contain the same text without
+// unexpectedly changing the presentation.
+export const getMarkdownSlides = source => {
+  const lines = String(source || "").split(/\r?\n/);
+  const slides = [];
+  const current = [];
+  let fence = null;
+  lines.forEach(line => {
+    const fenceMatch = line.match(/^\s*(`{3,}|~{3,})/);
+    if (fence) {
+      current.push(line);
+      if (fenceMatch && fenceMatch[1][0] === fence.character && fenceMatch[1].length >= fence.length) fence = null;
+      return;
+    }
+    if (fenceMatch) {
+      fence = { character: fenceMatch[1][0], length: fenceMatch[1].length };
+      current.push(line);
+      return;
+    }
+    if (/^\s*---\s*$/.test(line)) {
+      slides.push(current.join("\n"));
+      current.length = 0;
+      return;
+    }
+    current.push(line);
+  });
+  slides.push(current.join("\n"));
+  return slides.length ? slides : [""];
+};
+
 // Marked retains the exact source text for each block token. Keep those raw
 // ranges so the rendered Markdown surface can edit one block without
 // rewriting or reformatting the rest of the document.

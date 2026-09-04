@@ -29,6 +29,8 @@ export default function ShortcutsPanel({ bindings, onChange, onReset }) {
       <div className="shortcut-help" tabIndex={0} {...infoProps("Editing shortcuts", "Click a shortcut and press the new keys. Escape cancels; Delete or Backspace clears the binding. Conflicting bindings are marked.")}>?</div>
       {SHORTCUT_ACTIONS.map(action => {
         const binding = bindings[action.id];
+        const alternateLabels = (action.alternateBindings || []).map(shortcutLabel);
+        const displayedBinding = [shortcutLabel(binding), ...alternateLabels].join(" / ");
         return (
           <div className="shortcut-row" key={action.id}>
             <span>{action.label}</span>
@@ -40,7 +42,7 @@ export default function ShortcutsPanel({ bindings, onChange, onReset }) {
               aria-label={`Shortcut for ${action.label}`}
               title={duplicates.has(binding) ? "This shortcut is assigned more than once" : undefined}
             >
-              {recordingId === action.id ? "Press keys…" : shortcutLabel(binding)}
+              {recordingId === action.id ? "Press keys…" : displayedBinding}
             </button>
           </div>
         );

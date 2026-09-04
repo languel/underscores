@@ -10,7 +10,7 @@ const text = value => typeof value === "string" ? value : "";
 
 export const WALKTHROUGH_ADVANCE_MODES = Object.freeze(["auto", "continue", "assertion"]);
 export const WALKTHROUGH_CLOCK_MODES = Object.freeze(["free", "linked"]);
-export const WALKTHROUGH_UI_ACTIONS = Object.freeze(["click", "focus", "type", "shortcut"]);
+export const WALKTHROUGH_UI_ACTIONS = Object.freeze(["click", "focus", "type", "select", "shortcut"]);
 export const WALKTHROUGH_ASSERTION_TYPES = Object.freeze([
   "panel.state",
   "scene.exists",
@@ -20,7 +20,7 @@ export const WALKTHROUGH_ASSERTION_TYPES = Object.freeze([
   "event.observed",
 ]);
 
-const LEARNER_GATE_COMMAND = /(?:^excalidraw\.(?:file|scene\.clear|selection\.delete)|delete$|\.delete$|^collaboration\.room\.(?:create|join)|audio|midi|expressiveSynth\.demo)/i;
+const LEARNER_GATE_COMMAND = /(?:^excalidraw\.(?:file|scene\.clear|selection\.delete)|delete$|\.delete$|^collaboration\.room\.(?:create|join)|audio|midi|expressiveSynth\.demo|^strudel\.demo)/i;
 export const requiresWalkthroughLearnerGate = commandId => LEARNER_GATE_COMMAND.test(String(commandId || ""));
 
 export const normalizeWalkthroughCue = (cue = {}) => {
@@ -78,6 +78,7 @@ export const normalizeWalkthroughStep = (step = {}, index = 0) => {
   return {
     id: text(step.id) || createId("step"),
     title: text(step.title) || `Step ${index + 1}`,
+    showTitle: step.showTitle !== false,
     narration: text(step.narration),
     info: text(step.info),
     focusTarget: text(step.focusTarget),

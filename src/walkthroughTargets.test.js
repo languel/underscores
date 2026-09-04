@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isRegisteredWalkthroughTarget, resolveWalkthroughTarget } from "./walkthroughTargets.js";
+import { isRegisteredWalkthroughTarget, performWalkthroughUiAction, resolveWalkthroughTarget } from "./walkthroughTargets.js";
 
 test("walkthrough target registry rejects selectors and script access", () => {
   assert.equal(isRegisteredWalkthroughTarget("panel.script"), true);
@@ -41,4 +41,37 @@ test("the command palette target resolves against the live palette markup", () =
   assert.equal(target?.key, "app.commandPalette");
   assert.equal(target?.element?.id, "command-palette-input");
   assert.ok(seen[0].startsWith("#command-palette-input"));
+});
+
+test("the script type target resolves to the adapter picker", () => {
+  const scriptType = { focus() {} };
+  const documentRef = {
+    querySelector(selector) {
+      assert.match(selector, /editor\.scriptType|script-panel-type-picker/);
+      return scriptType;
+    },
+  };
+  assert.equal(isRegisteredWalkthroughTarget("editor.scriptType"), true);
+  assert.equal(resolveWalkthroughTarget("editor.scriptType", { documentRef }).element, scriptType);
+});
+
+test("the p5 example target resolves and walkthrough select cues dispatch change", async () => {
+  const events = [];
+  const example = {
+    value: "",
+    dispatchEvent: event => events.push(event.type),
+  };
+  const documentRef = {
+    querySelector(selector) {
+      assert.match(selector, /editor\.p5Example|livecode-example-control/);
+      return example;
+    },
+  };
+  assert.equal(isRegisteredWalkthroughTarget("editor.p5Example"), true);
+  await performWalkthroughUiAction(
+    { target: "editor.p5Example", action: "select", value: "pollock-splatter" },
+    { documentRef },
+  );
+  assert.equal(example.value, "pollock-splatter");
+  assert.deepEqual(events, ["change"]);
 });

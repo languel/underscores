@@ -146,7 +146,7 @@ import { PLAY_CORE_EXAMPLES, getPlayCoreExample } from "./playCoreExamples.js";
 import { LivecodeAutoUpdateToggle, LivecodeClockToggle, LivecodeNodeEditor, LivecodeNodeOverlay, StrudelPanelStatus } from "./LivecodeNodeOverlay.jsx";
 import { adjustLivecodeFontSize, copyLivecodeExampleName, createLivecodeNode, getLivecodeFont, getLivecodeKindDefinition, getLivecodePointerMode, getLivecodeViewForDoubleClick, isLivecodeAutoUpdateEnabled, isLivecodeCommandCycleGesture, isLivecodeCommandOutputGesture, isLivecodeNodeElement, LIVE_CODE_FONT_OPTIONS, LIVECODE_KIND_DEFINITIONS, LIVECODE_KIND_ORDER, LIVECODE_KINDS, normalizeLivecodeNode, patchLivecodeNode, randomLivecodeName, replaceLivecodeNodeProgram, resolveLivecodeRuntimeSource } from "./livecodeNode.js";
 import { isLivecodeUnderlayVisible, normalizeLivecodeComposition } from "./livecodeComposition.js";
-import { getLivecodeExamples } from "./livecodeExamples.js";
+import { AIRBIENT_STRUDEL_SOURCE, getLivecodeExamples, SUNDAY_WRLD_STRUDEL_SOURCE, SUNROOM_STRUDEL_SOURCE, UNDERLOOPED_STRUDEL_SOURCE, WELCOME_STRUDEL_SOURCE } from "./livecodeExamples.js";
 import { getThreeModelExample, inferThreeModelFormat, THREE_MODEL_EXAMPLES } from "./threeModel.js";
 import { describeLivecodeRuntime, getLivecodeCompositionCapabilities, validateLivecodeNode } from "./livecodeAdapters.js";
 import { getShaderExample, normalizeShaderCompositionSettings, normalizeShaderSourceMode, shaderExampleForSource } from "./shaderLivecode.js";
@@ -229,7 +229,7 @@ import { createBakedImageElement, createBakedImageFile, createCanvasSnapshotImag
 import { quantizeGridElement, quantizeGridElementBounds, sharedGridSnapDelta, translateGridElement } from "./gridElementQuantization.js";
 import { createGridInteractionState, updateGridInteractionMovement } from "./gridInteraction.js";
 import { getClassicSelectionDragCandidate } from "./classicSelectionInteraction.js";
-import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
+import { DEFAULT_SHORTCUTS, findShortcutAction, normalizeShortcutBindings, shortcutFromEvent, SHORTCUT_STORAGE_KEY } from "./shortcutSystem.js";
 import { parseContextCommand } from "./contextCommand.js";
 import { applyStrokeWidthShortcut } from "./strokeWidthShortcuts.js";
 import { infoProps } from "./uiInfo.js";
@@ -14828,18 +14828,27 @@ function App() {
   // --- COMMAND PALETTE LOGIC ---
   const PANEL_COMMANDS = UNDERSCORES_PANELS.map(panel => ({
     id: `panel-${panel.id}`,
-    name: `Toggle ${panel.label} ${panel.slash}`,
-    aliases: [panel.slash, ...(panel.aliases || []), panel.label, `panel ${panel.label}`],
+    name: panel.id === "script" ? "Show Code /code" : `Show ${panel.label} ${panel.slash}`,
+    aliases: [
+      panel.slash,
+      ...(panel.aliases || []),
+      panel.label,
+      `panel ${panel.label}`,
+      ...(panel.id === "script" ? ["/code", "Code", "Show Code"] : []),
+    ],
     category: "Panels",
     record: "presentation",
-    ai: { expose: true, description: `Toggle the ${panel.label} panel.` },
+    ai: { expose: true, description: `Show the ${panel.label} panel.` },
     panel,
     action: () => {
       applyingRecordedUiStateRef.current = true;
-      toggleUnderscoresPanel(panel.id);
+      toggleUnderscoresPanel(panel.id, { open: true });
       finishApplyingRecordedUiState();
     },
-  }));
+  })).sort((left, right) => {
+    const priority = { documentation: 0, script: 1 };
+    return (priority[left.panel.id] ?? 2) - (priority[right.panel.id] ?? 2);
+  });
   // Keep this catalog on the public Excalidraw API surface. Underscores's
   // Excalidraw build deliberately does not reach into Excalidraw's internal
   // action manager, which makes these commands stable for both people and AI
@@ -15291,6 +15300,7 @@ function App() {
     { id: "commandPalette.close", name: "Close Command Palette", category: "Panels", record: "presentation", action: () => setShowCommandPalette(false) },
     { id: "panel.open", name: "Open Panel", category: "Panels", record: "presentation", args: { panelId: "string" }, ai: { expose: true, description: "Open a registered Underscores panel deterministically." }, action: (_api, args = {}) => setUnderscoresPanelOpen(args.panelId, true, args.options || {}) },
     { id: "panel.close", name: "Close Panel", category: "Panels", record: "presentation", args: { panelId: "string" }, ai: { expose: true, description: "Close a registered Underscores panel deterministically." }, action: (_api, args = {}) => setUnderscoresPanelOpen(args.panelId, false) },
+    { id: "documentation.shortcuts", name: "Documentation: Canvas shortcuts /canvas shortcuts", aliases: ["/canvas shortcuts", "/shortcuts", "Canvas shortcuts"], category: "Documentation", record: "presentation", ai: { expose: true, description: "Open the Canvas shortcuts reference in Documentation." }, action: () => { setDocumentationRequest({ entryId: "start-canvas-shortcuts", query: "", nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); return { id: "start-canvas-shortcuts" }; } },
     { id: "documentation.open", name: "Documentation: Open Page /docs open", aliases: ["/docs open", "/documentation open", "/help open"], category: "Documentation", record: "presentation", args: { id: "string" }, ai: { expose: true, description: "Open the Documentation panel and select a page by its stable id." }, action: (_api, args = {}) => { setDocumentationRequest({ entryId: args.id, query: "", nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); return { id: args.id }; } },
     { id: "documentation.search", name: "Documentation: Search /docs search", aliases: ["/docs search", "/documentation search", "/help search"], category: "Documentation", record: "presentation", args: { query: "string" }, ai: { expose: true, description: "Open the Documentation panel and search its nested reference and help catalog." }, action: (_api, args = {}) => { setDocumentationRequest({ query: String(args.query || ""), nonce: Date.now() }); setUnderscoresPanelOpen("documentation", true, { forceOpen: true }); return { query: String(args.query || "") }; } },
     { id: "walkthrough.list", name: "Walkthrough: List", aliases: ["/walkthrough list"], category: "Walkthrough", record: "never", ai: { expose: true, description: "List the guided walkthroughs authored in this patch." }, action: () => walkthroughsRef.current.map(({ id, revision, title, description, clockMode, steps }) => ({ id, revision, title, description, clockMode, stepCount: steps.length })) },
@@ -15366,8 +15376,53 @@ function App() {
     { id: "library", name: "Library /library", aliases: ["/library"], category: "Panels", action: toggleLibrary },
     { id: "new-chat", name: "Reset Conversation (New Chat)", category: "AI Chat", action: () => clearChat() },
     { id: "copy-transcript", name: "Copy Conversation Transcript", category: "AI Chat", action: () => copyTranscript() },
-    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and the shared __ bridge. loadModel safely loads OBJ, glTF/GLB, USD/USDZ, or ZIP archives containing an OBJ and returns a scene plus animation clips. They do not depend on Manim. Three starters are unit-cube, lit-torus-knot, orbiting-spheres, parameter-dancing-lights, model-viewer-gltf, model-viewer-animation-morph, model-viewer-obj-teapot, mediapipe-unicursal-3d, and mediapipe-schlemmer-3d; omit example for a blank source. The MediaPipe starters read named Holistic landmarks and use deterministic fallbacks when no completed frame is available. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal, rainbow, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", example: "model-viewer-gltf", name: "Three.js model", width: 640, height: 420, transportMode: "free", view: "preview", running: true } }, action: (_api, args) => createLivecodeCanvasNode(args) },
+    { id: "livecode.node.create", name: "Create Livecode Node /live", aliases: ["/live", "/code", "Livecode node", "Create livecode"], category: "Livecode", args: { kind: "strudel|p5|manim|three|playcore|markdown|latex|html|orca|shader|tixy|svg?", example: "kind-specific example id?", name: "string?", width: "number?", height: "number?", source: "string?", parameters: "object?", running: "boolean?", enabled: "boolean?", transportMode: "linked|free?", view: "preview|source|code|split?" }, ai: { expose: true, description: "Create a self-contained Livecode Node. Three.js nodes are standalone bundled scenes: authored JavaScript receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and the shared __ bridge. loadModel safely loads OBJ, glTF/GLB, USD/USDZ, or ZIP archives containing an OBJ and returns a scene plus animation clips. They do not depend on Manim. Three starters are unit-cube, lit-torus-knot, orbiting-spheres, parameter-dancing-lights, model-viewer-gltf, model-viewer-animation-morph, model-viewer-obj-teapot, mediapipe-unicursal-3d, and mediapipe-schlemmer-3d; omit example for a blank source. The MediaPipe starters read named Holistic landmarks and use deterministic fallbacks when no completed frame is available. Manim nodes accept authored manim-web JavaScript with top-level await and receive scene, cue(), MANIM, and __. Choose transportMode free for an immediately self-running animation or linked for score-controlled playback. Shader nodes accept hello, minimal space raymarch, quark soup, starfield, shadow, fluid, or stokes examples. Tixy nodes accept a compact (t, i, x, y) JavaScript expression and render a transport-synchronized 16×16 dot grid by default; optional @param gridSize, gridWidth, gridHeight, color1, color0, and backgroundColor declarations customize dimensions and palettes. A numeric gridSize is square, a [width, height] JSON value is rectangular, and the background defaults to transparent for layering. SVG nodes render sanitized source locally with transport-aware animation seeking. The transparent Excalidraw identity host owns source, parameters, runtime state, and typography.", example: { kind: "three", example: "model-viewer-gltf", name: "Three.js model", width: 640, height: 420, transportMode: "free", view: "preview", running: true } }, action: (_api, args) => createLivecodeCanvasNode(args) },
     { id: "livecode.node.create.strudel", name: "Create Strudel Livecode Node /live strudel", aliases: ["/live strudel", "/code strudel"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.strudel }) },
+    { id: "strudel.demo.welcome", name: "Create Welcome Trip-hop Backdrop", aliases: ["Welcome Strudel backdrop", "Trip-hop backdrop"], category: "Livecode", record: "never", action: () => createLivecodeCanvasNode({
+      kind: LIVECODE_KINDS.strudel,
+      name: "Welcome trip-hop backdrop",
+      source: WELCOME_STRUDEL_SOURCE,
+      running: true,
+      transportMode: "free",
+      view: "preview",
+      runtimeSettings: { autoUpdate: false },
+    }) },
+    { id: "strudel.demo.airbient", name: "Create airbient Strudel Demo /airbient", aliases: ["/airbient", "airbient", "Airbient demo"], category: "Livecode", action: () => createLivecodeCanvasNode({
+      kind: LIVECODE_KINDS.strudel,
+      name: "airbient",
+      source: AIRBIENT_STRUDEL_SOURCE,
+      running: true,
+      transportMode: "free",
+      view: "preview",
+      runtimeSettings: { autoUpdate: false },
+    }) },
+    { id: "strudel.demo.sunroom", name: "Create sunroom Strudel Demo /sunroom", aliases: ["/sunroom", "sunroom", "Happy Strudel demo"], category: "Livecode", action: () => createLivecodeCanvasNode({
+      kind: LIVECODE_KINDS.strudel,
+      name: "sunroom",
+      source: SUNROOM_STRUDEL_SOURCE,
+      running: true,
+      transportMode: "free",
+      view: "preview",
+      runtimeSettings: { autoUpdate: false },
+    }) },
+    { id: "strudel.demo.sunday-wrld", name: "Create SUNDAY WRLD Strudel Demo /sunday-wrld", aliases: ["/sunday-wrld", "/sunday wrld", "SUNDAY WRLD", "Sunday World"], category: "Livecode", action: () => createLivecodeCanvasNode({
+      kind: LIVECODE_KINDS.strudel,
+      name: "SUNDAY WRLD",
+      source: SUNDAY_WRLD_STRUDEL_SOURCE,
+      running: true,
+      transportMode: "free",
+      view: "preview",
+      runtimeSettings: { autoUpdate: false },
+    }) },
+    { id: "strudel.demo.underlooped", name: "Create underlooped Strudel Demo /underlooped", aliases: ["/underlooped", "underlooped", "Underlooped demo"], category: "Livecode", action: () => createLivecodeCanvasNode({
+      kind: LIVECODE_KINDS.strudel,
+      name: "underlooped",
+      source: UNDERLOOPED_STRUDEL_SOURCE,
+      running: true,
+      transportMode: "free",
+      view: "preview",
+      runtimeSettings: { autoUpdate: false },
+    }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
     { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and __. loadModel supports OBJ, glTF/GLB, USD/USDZ, and ZIP archives containing an OBJ, returning scene and animation clips. The Example menu includes Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, glTF model viewer, Animated glTF blendshape, a CORS-friendly Three.js Walt Head OBJ, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D); the last two read Holistic landmarks and fall back to deterministic geometry when no frame is available. The node surface supports local orbit, pan, zoom, and keyboard camera controls." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
     { id: "livecode.node.create.playcore", name: "Create Play Core Livecode Node /live playcore", aliases: ["/live playcore", "/live play", "/code playcore", "/code play"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.playcore }) },
@@ -15381,7 +15436,8 @@ function App() {
     { id: "livecode.node.create.shader", name: "Create GLSL Livecode Node /live shader", aliases: ["/live shader", "/live glsl", "/code shader", "/code glsl"], category: "Livecode", ai: { expose: true, description: "Create a blank GLSL Livecode Node ready for authoring. The node uses the local WebGL shader runtime; choose an explicit shader example when you want a prefilled source." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader }) },
     { id: "livecode.node.create.shader.hello", name: "Create Hello GLSL Livecode Node /shader hello", aliases: ["/shader", "/shader hello", "/live shader hello", "/live glsl hello", "/code shader hello"], category: "Livecode", ai: { expose: true, description: "Create the Hello GLSL example as a ready-to-run Livecode Node." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "hello" }) },
     { id: "livecode.node.create.shader.minimal", name: "Create Minimal Twigl Shader /shader minimal", aliases: ["/shader minimal", "/live shader minimal", "/code shader minimal", "/shader shadertoy", "/shader twigl"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "minimal-raymarch" }) },
-    { id: "livecode.node.create.shader.rainbow", name: "Create Rainbow Shader /shader rainbow", aliases: ["/shader rainbow", "/live shader rainbow", "/code shader rainbow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "rainbow" }) },
+    { id: "livecode.node.create.shader.quarksoup", name: "Create Quark Soup Shader /shader quarksoup", aliases: ["/shader quarksoup", "/live shader quarksoup", "/code shader quarksoup", "quark soup"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "quarksoup" }) },
+    { id: "livecode.node.create.shader.starfield", name: "Create Starfield Shader /shader starfield", aliases: ["/shader starfield", "/live shader starfield", "/code shader starfield", "starfield"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "starfield" }) },
     { id: "livecode.node.create.shader.shadow", name: "Create 2D Shadow Shader /shader shadow", aliases: ["/shader shadow", "/live shader shadow", "/code shader shadow"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "shadow" }) },
     { id: "livecode.node.create.shader.fluid", name: "Create Fluid Brush Shader /shader fluid", aliases: ["/shader fluid", "/live shader fluid", "/code shader fluid"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "fluid" }) },
     { id: "livecode.node.create.shader.stokes", name: "Create Stokes Flow Shader /shader stokes", aliases: ["/shader stokes", "/live shader stokes", "/code shader stokes"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.shader, example: "stokes" }) },
@@ -16228,8 +16284,8 @@ function App() {
     };
   }, [eventBus, excalidrawAPI, historyClockMode, historyController, historyIncludeCanvasInput, historyIncludeUiInput, laserColor, laserOpacity]);
 
-  // Toggle the command palette on Cmd + / and the context command field on
-  // Option + Shift + Minus. Keep these presentation shortcuts global.
+  // Keep the palette, canvas help, and contextual selection command shortcuts
+  // on the shared capture path so Excalidraw cannot consume them first.
   useEffect(() => {
     const refreshCanvasToolCursor = () => {
       const point = lastCanvasPointerRef.current;
@@ -16266,6 +16322,19 @@ function App() {
       // canvas livecode editor: it switches the selected node to output and
       // defocuses it without changing plain Escape's editor behavior.
       const activeElement = document.activeElement;
+      // Tour controls own their keyboard navigation. Let their Enter/Space
+      // activation and arrow-key focus movement reach the overlay instead of
+      // being consumed by canvas shortcuts (notably Space → transport).
+      const inWalkthroughOverlay = Boolean(e.target?.closest?.(".walkthrough-overlay") || activeElement?.closest?.(".walkthrough-overlay"));
+      if (inWalkthroughOverlay && (e.key === "Enter" || e.code === "Space" || ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key))) return;
+      const inMarkdownSlideshow = Boolean(e.target?.closest?.(".livecode-markdown.slideshow-active") || activeElement?.closest?.(".livecode-markdown.slideshow-active"));
+      if (inMarkdownSlideshow && ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
+      // Native buttons should activate from the keyboard everywhere. Space
+      // otherwise maps to transport, so leave an ordinary focused button's
+      // default click behavior untouched.
+      const focusedButton = e.target?.closest?.("button,[role=\"button\"]") || activeElement?.closest?.("button,[role=\"button\"]");
+      if (focusedButton && !focusedButton.disabled && !e.metaKey && !e.ctrlKey && !e.altKey
+        && (e.key === "Enter" || e.code === "Space")) return;
       const shortcutActionForEvent = findShortcutAction(shortcutBindings, e);
       const isSceneLayerShortcut = shortcutActionForEvent?.id?.startsWith("scene.layer.");
       if (showContextPrompt && activeElement?.id === "context-prompt-input" && shortcutActionForEvent?.id === "ai.context.prompt") return;
@@ -16464,6 +16533,19 @@ function App() {
         || isSceneLayerShortcut
         ? shortcutActionForEvent
         : null;
+      // The compact selection command keeps its existing Option/Alt+Shift+-
+      // binding global, but the `>` convenience binding belongs to the canvas.
+      // Check that scope before consuming the key so a focused field can still
+      // type `>` normally.
+      const isGreaterThanApplyShortcut = shortcutActionForEvent?.id === "ai.context.prompt"
+        && shortcutFromEvent(e) === "Shift+Period";
+      if (isGreaterThanApplyShortcut) {
+        const pointerTarget = lastCanvasPointerRef.current
+          ? document.elementFromPoint(lastCanvasPointerRef.current[0], lastCanvasPointerRef.current[1])
+          : null;
+        const canvasTarget = e.target?.closest?.("#canvas-container") || pointerTarget?.closest?.("#canvas-container");
+        if (isTextControlFocused || !canvasTarget) return;
+      }
       if (shortcutAction) {
         if (shortcutAction.id !== "tool-line" && excalidrawAPI?.getAppState()?.activeTool?.type === "line" && nativeLineGridPointsRef.current?.points?.length >= 2) {
           finalizeCapturedNativeLine();
@@ -16504,7 +16586,11 @@ function App() {
           return;
         }
         if (shortcutAction.id === "mods.script.open") {
-          setScriptPanelType("brush");
+          // Ctrl/Alt+B opens the shared Script panel. Brush is a separate
+          // modifier editor, so never force it as the destination for this
+          // shortcut; retain the last catalog/editor choice and use Livecode
+          // for a fresh/default panel.
+          setScriptPanelType(previous => previous === "brush" ? "livecode" : normalizeScriptType(previous));
           commandRegistry.execute("panel-script", {}, { source: "shortcut", transportTime: scoreTimeRef.current });
           return;
         }
@@ -16787,11 +16873,16 @@ function App() {
     }
     
     if (commandSearch.trim() !== "" && !query.startsWith("/")) {
-      matches.unshift({
+      const askAssistantMatch = {
         id: "ask-ai",
-        name: `Ask AI: "${commandSearch}"`,
+        name: `Ask assistant: "${commandSearch}"`,
         category: "AI Query"
-      });
+      };
+      // Keep a concrete command result as the primary action. Open-ended
+      // assistant help is still available immediately after it, and becomes
+      // the sole result when the query has no command match.
+      if (matches.length > 0) matches.splice(1, 0, askAssistantMatch);
+      else matches.unshift(askAssistantMatch);
     }
     
     return matches;
@@ -17031,11 +17122,26 @@ function App() {
     return (api.getSceneElements?.() || []).filter(element => !element.isDeleted && selectedIds[element.id]);
   };
 
-  const contextOperationSuggestions = getSelectionOperationSuggestions(getLiveSelectedElements());
+  const liveSelectedElements = getLiveSelectedElements();
+  const contextOperationSuggestions = getSelectionOperationSuggestions(liveSelectedElements);
   const filteredContextOperationSuggestions = filterSelectionOperationSuggestions(
     contextPrompt,
     contextOperationSuggestions,
-  ).slice(0, 12);
+  );
+  const contextAssistantSuggestion = {
+    id: "context-ask-assistant",
+    name: "Ask assistant about element",
+    category: "AI Query",
+    syntax: "@selection [question]",
+    kind: "assistant",
+  };
+  const filteredContextSuggestions = (() => {
+    const suggestions = filteredContextOperationSuggestions.slice(0, 12);
+    if (liveSelectedElements.length === 0) return suggestions;
+    if (suggestions.length > 0) suggestions.splice(1, 0, contextAssistantSuggestion);
+    else suggestions.unshift(contextAssistantSuggestion);
+    return suggestions.slice(0, 12);
+  })();
 
   const selectContextOperation = operation => {
     if (!operation) return;
@@ -18115,6 +18221,27 @@ function App() {
       target[path[path.length - 1]] = nextValue;
       return next;
     });
+  };
+
+  const executeContextAssistantPrompt = prompt => {
+    const text = String(prompt || "").trim();
+    const hasSelectionPrefix = /^@selection(?:\s|$)/i.test(text);
+    const question = hasSelectionPrefix ? text.slice("@selection".length).trim() : text;
+    const assistantPrompt = `@selection${question ? ` ${question}` : ""}`;
+    setShowContextPrompt(false);
+    setContextPrompt("");
+    setContextPromptIndex(0);
+    setContextPromptPosition(null);
+    void contextPromptActionRef.current?.(assistantPrompt);
+  };
+
+  const selectContextSuggestion = suggestion => {
+    if (!suggestion) return;
+    if (suggestion.kind === "assistant") {
+      executeContextAssistantPrompt(contextPrompt);
+      return;
+    }
+    selectContextOperation(suggestion);
   };
 
   const updateScoreObjectTiming = (args = {}) => {
@@ -20391,7 +20518,30 @@ function App() {
       return null;
     }
     const appState = api.getAppState();
-    const center = viewportCoordsToSceneCoords({ clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 }, appState);
+    // Commands are often issued from the palette or an assistant after the
+    // pointer has already been placed on the canvas. Preserve that intent so
+    // a new node lands where the learner is looking instead of stacking every
+    // node at the viewport centre. Explicit client coordinates remain useful
+    // to scripted callers; the last canvas pointer is the normal fallback.
+    const explicitClientX = Number(args.clientX);
+    const explicitClientY = Number(args.clientY);
+    const lastCanvasPoint = Array.isArray(lastCanvasPointerRef.current)
+      ? lastCanvasPointerRef.current
+      : null;
+    const viewportPoint = Number.isFinite(explicitClientX) && Number.isFinite(explicitClientY)
+      ? { clientX: explicitClientX, clientY: explicitClientY }
+      : lastCanvasPoint
+        ? { clientX: lastCanvasPoint[0], clientY: lastCanvasPoint[1] }
+        : { clientX: window.innerWidth / 2, clientY: window.innerHeight / 2 };
+    const pointerCenter = viewportCoordsToSceneCoords(viewportPoint, appState);
+    const zoom = Math.max(0.01, Number(appState.zoom?.value) || 1);
+    const offset = args.offset && typeof args.offset === "object" && !Array.isArray(args.offset)
+      ? { x: Number(args.offset.x) || 0, y: Number(args.offset.y) || 0 }
+      : { x: 0, y: 0 };
+    const center = {
+      x: pointerCenter.x + offset.x / zoom,
+      y: pointerCenter.y + offset.y / zoom,
+    };
     const kind = requestedKind;
     // A new node is an empty authoring surface. Templates are opt-in via an
     // explicit example (the dedicated /shader example commands pass one).
@@ -26043,7 +26193,7 @@ function App() {
         <summary>Node settings</summary>
         <div className="livecode-panel-controls">
         <label>Kind <select value={node.kind} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { kind: event.target.value, name: randomLivecodeName(event.target.value) }, { commitToHistory: true })}>{LIVECODE_KIND_ORDER.filter(id => !isPublicSafeBuild || id !== "strudel").map(id => <option key={id} value={id}>{LIVECODE_KIND_DEFINITIONS[id].label}</option>)}</select></label>
-        {livecodeExamples.length > 0 && <label className="livecode-example-control">Example <select value={activeLivecodeExampleId} onChange={event => {
+        {livecodeExamples.length > 0 && <label className="livecode-example-control">Example <select data-walkthrough-target={node.kind === LIVECODE_KINDS.p5 ? "editor.p5Example" : undefined} value={activeLivecodeExampleId} onChange={event => {
           const next = livecodeExamples.find(example => example.id === event.target.value);
           if (!next) {
             patchLivecodeCanvasNode(nodeElement.id, {
@@ -26080,9 +26230,10 @@ function App() {
             } },
           }, { commitToHistory: true });
         }}><option value="">Blank document</option>{livecodeExamples.map(example => <option key={example.id} value={example.id}>{example.label}</option>)}</select></label>}
+        {node.kind === LIVECODE_KINDS.markdown && <label title="Show Markdown slides separated by a line containing only ---; focus the slide and use Left/Right or Up/Down to navigate">Slideshow <span className="livecode-checkbox"><input type="checkbox" aria-label="Markdown slideshow" checked={node.view === "slideshow"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.checked ? "slideshow" : "preview" }, { commitToHistory: true })} />Show</span></label>}
         {node.kind === LIVECODE_KINDS.orca
           ? <label className="livecode-view-control">View <span className="livecode-static-option">Grid</span></label>
-          : <label className="livecode-view-control">View <select value={node.view === "overlay" ? "code" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option>{node.kind !== LIVECODE_KINDS.strudel && <option value="split">Code/Output</option>}</select></label>}
+          : <label className="livecode-view-control">View <select value={node.view === "overlay" || node.view === "slideshow" ? "preview" : node.view} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { view: event.target.value }, { commitToHistory: true })}><option value="preview">Output</option><option value="source">Code</option><option value="code">Code Overlay</option>{node.kind !== LIVECODE_KINDS.strudel && <option value="split">Code/Output</option>}</select></label>}
         {[LIVECODE_KINDS.p5, LIVECODE_KINDS.manim, LIVECODE_KINDS.three, LIVECODE_KINDS.playcore, LIVECODE_KINDS.shader, LIVECODE_KINDS.strudel, LIVECODE_KINDS.tixy].includes(node.kind) && <label title="Keep the most recent rendered canvas frame visible when this node is stopped. Readback happens only when stopping.">Last frame <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.keepLastFrame !== false} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { keepLastFrame: event.target.checked } } }, { commitToHistory: true })} />Keep</span></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Choose the native compact Orca cell spacing or fill the host frame">Spacing <select value={node.runtime.settings?.orcaDensity === "spacious" ? "spacious" : "compact"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaDensity: event.target.value } } }, { commitToHistory: true })}><option value="compact">Compact</option><option value="spacious">Spacious</option></select></label>}
         {node.kind === LIVECODE_KINDS.orca && <label title="Number of editable Orca columns">Grid width <NumericInput min="4" max="128" step="1" value={node.runtime.settings?.orcaGridWidth || 32} defaultValue={32} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { orcaGridWidth: value } } }, { commitToHistory: true })} /></label>}
@@ -26092,7 +26243,7 @@ function App() {
         {node.kind === LIVECODE_KINDS.p5 && <label title="Choose the embedded p5.js major runtime. The latest 2.x is the default; use 1.x for sketches or libraries that need the legacy API.">p5 version <select value={normalizeP5Version(node.runtime.settings?.p5Version)} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { p5Version: normalizeP5Version(event.target.value) } } }, { commitToHistory: true })}>{P5_RUNTIME_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>}
         <label title="Show the compact tab above this Livecode node on the canvas">Canvas tab <span className="livecode-checkbox"><input type="checkbox" checked={node.runtime.settings?.showChrome === true} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { showChrome: event.target.checked } } }, { commitToHistory: true })} />Show</span></label>
         <label title="Default: this node receives scrolling, text, and sketch input. Enable only when you want pointer gestures to select or transform it with the canvas.">Canvas pointer <span className="livecode-checkbox"><input type="checkbox" checked={getLivecodePointerMode(node) === "canvas"} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { canvasPointerEvents: event.target.checked } } }, { commitToHistory: true })} />Pass through</span></label>
-        {node.kind === LIVECODE_KINDS.shader && <label title="Choose the full GLSL ES 3.00 contract or a compact Twigl/Shadertoy-style fragment body">Source <select value={shaderSourceMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { shaderDialect: event.target.value } } }, { commitToHistory: true })}><option value="standard">GLSL 300</option><option value="shadertoy">Minimal / Twigl / Shadertoy</option></select></label>}
+        {node.kind === LIVECODE_KINDS.shader && <label title="Choose the full GLSL ES 3.00 contract or a compact Shadertoy/Twigl-style fragment body">Source <select value={shaderSourceMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { shaderDialect: event.target.value } } }, { commitToHistory: true })}><option value="standard">GLSL 300</option><option value="shadertoy">Shadertoy / Twigl</option></select></label>}
         {compositionCapabilities.compositeModes.length > 0 && <label title="Place this visual node above or below native canvas objects without copying its pixels">Layer <select value={composition.compositeMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeMode: event.target.value } } }, { commitToHistory: true })}>{compositionCapabilities.compositeModes.map(mode => <option key={mode} value={mode}>{mode === "underlay" ? "Below objects" : "Above objects"}</option>)}</select></label>}
         <label title="Adjust this node surface in the browser compositor; native object opacity remains independent">Opacity % <NumericInput min="0" max="100" step="5" value={Math.round(composition.compositeOpacity * 100)} defaultValue={100} onCommit={value => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { compositeOpacity: value / 100 } } }, { commitToHistory: true })} /></label>
         {compositionCapabilities.blendModes.length > 0 && <label title="Blend this node surface with the visual layers beneath it">Blend <select value={composition.blendMode} onChange={event => patchLivecodeCanvasNode(nodeElement.id, { runtime: { settings: { blendMode: event.target.value } } }, { commitToHistory: true })}>{compositionCapabilities.blendModes.map(mode => <option key={mode} value={mode}>{mode === "soft-light" ? "Soft light" : mode[0].toUpperCase() + mode.slice(1)}</option>)}</select></label>}
@@ -32042,6 +32193,11 @@ function App() {
           activeTool={activeCanvasToolType}
           minimal={screencastInputMinimal}
           onClose={() => updateScreencastInputVisibility(false)}
+          onToggleMinimal={() => setScreencastInputMinimal(previous => {
+            const next = !previous;
+            localStorage.setItem(SCREENCAST_INPUT_MINIMAL_KEY, String(next));
+            return next;
+          })}
         /> : null}
 
         {relationshipGraph.systems.length > 0 ? <PhysicsOverlay
@@ -32542,21 +32698,26 @@ function App() {
                       setContextPrompt("");
                       setContextPromptIndex(0);
                       setContextPromptPosition(null);
-                    } else if (event.key === "ArrowDown" && filteredContextOperationSuggestions.length > 0) {
+                    } else if (event.key === "ArrowDown" && filteredContextSuggestions.length > 0) {
                       event.preventDefault();
-                      setContextPromptIndex(index => (index + 1) % filteredContextOperationSuggestions.length);
-                    } else if (event.key === "ArrowUp" && filteredContextOperationSuggestions.length > 0) {
+                      setContextPromptIndex(index => (index + 1) % filteredContextSuggestions.length);
+                    } else if (event.key === "ArrowUp" && filteredContextSuggestions.length > 0) {
                       event.preventDefault();
-                      setContextPromptIndex(index => (index - 1 + filteredContextOperationSuggestions.length) % filteredContextOperationSuggestions.length);
-                    } else if (event.key === "Tab" && filteredContextOperationSuggestions.length > 0) {
+                      setContextPromptIndex(index => (index - 1 + filteredContextSuggestions.length) % filteredContextSuggestions.length);
+                    } else if (event.key === "Tab" && filteredContextSuggestions.length > 0) {
                       event.preventDefault();
-                      selectContextOperation(filteredContextOperationSuggestions[contextPromptIndex] || filteredContextOperationSuggestions[0]);
+                      selectContextSuggestion(filteredContextSuggestions[contextPromptIndex] || filteredContextSuggestions[0]);
                     } else if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       const prompt = contextPrompt.trim();
+                      const highlighted = filteredContextSuggestions[contextPromptIndex] || filteredContextSuggestions[0];
+                      if (highlighted?.kind === "assistant") {
+                        executeContextAssistantPrompt(prompt);
+                        return;
+                      }
                       const parsed = parseSelectionOperation(prompt);
-                      if (!parsed && filteredContextOperationSuggestions.length > 0) {
-                        selectContextOperation(filteredContextOperationSuggestions[contextPromptIndex] || filteredContextOperationSuggestions[0]);
+                      if (!parsed && filteredContextSuggestions.length > 0) {
+                        selectContextSuggestion(highlighted);
                         return;
                       }
                       setShowContextPrompt(false);
@@ -32568,9 +32729,9 @@ function App() {
                   }}
                 />
               </div>
-              {filteredContextOperationSuggestions.length > 0 && (
-                <div className="context-prompt-autocomplete" role="listbox" aria-label="Selection operations">
-                  {filteredContextOperationSuggestions.map((operation, index) => (
+              {filteredContextSuggestions.length > 0 && (
+                <div className="context-prompt-autocomplete" role="listbox" aria-label="Selection commands">
+                  {filteredContextSuggestions.map((operation, index) => (
                     <button
                       key={operation.id}
                       type="button"
@@ -32580,7 +32741,7 @@ function App() {
                       onMouseEnter={() => setContextPromptIndex(index)}
                       onMouseDown={event => {
                         event.preventDefault();
-                        selectContextOperation(operation);
+                        selectContextSuggestion(operation);
                       }}
                     >
                       <span className="context-prompt-operation-name">{operation.name}</span>

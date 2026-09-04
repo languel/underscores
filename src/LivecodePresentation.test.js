@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildHtmlSandboxDocument, getMarkdownSourceBlocks, highlightMarkdownCode, renderMarkdownWithMath, sanitizeMarkdownHtml, validateMarkdownSource } from "./livecodePresentation.js";
+import { buildHtmlSandboxDocument, getMarkdownSlides, getMarkdownSourceBlocks, highlightMarkdownCode, renderMarkdownWithMath, sanitizeMarkdownHtml, validateMarkdownSource } from "./livecodePresentation.js";
 
 test("Markdown renders inline math while discarding active markup", () => {
   const html = renderMarkdownWithMath("# score\n\n$E = mc^2$ <script>alert(1)</script>");
@@ -27,6 +27,14 @@ test("Markdown source blocks preserve the exact document for in-place editing", 
   assert.equal(blocks.length, 3);
   assert.deepEqual({ type: blocks[0].type, depth: blocks[0].depth }, { type: "heading", depth: 1 });
   assert.deepEqual(validateMarkdownSource(blocks[1].source), { valid: true, error: "" });
+});
+
+test("Markdown slideshow splits horizontal rules without splitting fenced code", () => {
+  const slides = getMarkdownSlides("# One\n\n---\n\n# Two\n\n```md\n---\n```");
+  assert.equal(slides.length, 2);
+  assert.match(slides[0], /# One/);
+  assert.match(slides[1], /# Two/);
+  assert.match(slides[1], /```md\n---\n```/);
 });
 
 test("HTML node documents are opaque-origin sandbox documents with token bridge", () => {

@@ -147,7 +147,99 @@ export const shaderSourceUsesFeedbackBuffer = (source, mode = "standard") => (
   && /\b(?:texture|texture2D)\s*\(\s*(?:b|b0|b1|backbuffer|backbuffer0|backbuffer1)\s*,/.test(String(source || ""))
 );
 
-export const SHADERTOY_MINIMAL_RAYMARCH_SOURCE = `vec3 p;for(float i,z,d;i++<1e2;o+=(sin(p.x+t+vec4(0,2,4,0))+1.3)/d)p=z*normalize(FC.rgb*2.-r.xyy),p.xy*=mat2(cos(z*.2+vec4(0,33,11,0))),p.z-=t+t,z+=d=length(cos(p+cos(p.yzx*7.+t)))/9.;o=tanh(o*o/4e6);`;
+export const SHADERTOY_MINIMAL_RAYMARCH_SOURCE = `vec3 p;for(float i,z,d;i++<90.;o+=vec4(.55,.62,.72,0.)/max(d,.002))p=z*normalize(vec3(FC.xy-.5*r,r.y)),p.xy*=mat2(cos(z*.08+vec4(0,33,11,0))),p.z+=t*.35,z+=d=length(cos(p*.55)+sin(p.yzx*1.3))/7.;o=tanh(o/3e3),o.a=1.;`;
+
+// A compact, mouse-reactive companion for fast visual performances. The
+// pointer bends the ray field itself, so the soup shifts under the cursor
+// instead of merely adding a decorative highlight.
+export const SHADERTOY_QUARKSOUP_SOURCE = `vec3 p;vec2 q=(m.xy/r-.5)*2.;for(float i,z,d;i++<96.;o+=vec4(.64,.28,.10,0.)/max(d,.002))p=z*normalize(vec3(FC.xy-.5*r,r.y)),p.xy*=mat2(cos(z*.08+vec4(0,33,11,0))),p.xy+=q*(.18+.24*sin(z*.17+t)),p.z+=t*.45,z+=d=length(cos(p*.62)+sin(p.yzx*1.7+t*.18))/7.;o=tanh(o/2.8e3),o.a=1.;`;
+
+// A fully authored GLSL ES 3.00 starfield. The three parallax layers use
+// deterministic cell noise for stars, slow drift for depth, and a very quiet
+// nebula so the field stays legible behind other performance visuals.
+export const STARFIELD_FRAGMENT_SOURCE = `#version 300 es
+precision highp float;
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform float u_transportTime;
+uniform vec2 u_pointer;
+
+in vec2 v_uv;
+out vec4 outColor;
+
+// A small, deterministic hash keeps the field stable between frames while
+// still giving every grid cell its own star position and pulse phase.
+float hash21(vec2 point) {
+  point = fract(point * vec2(123.34, 456.21));
+  point += dot(point, point + 45.32);
+  return fract(point.x * point.y);
+}
+
+float valueNoise(vec2 point) {
+  vec2 cell = floor(point);
+  vec2 local = fract(point);
+  local = local * local * (3.0 - 2.0 * local);
+  float lower = mix(hash21(cell), hash21(cell + vec2(1.0, 0.0)), local.x);
+  float upper = mix(hash21(cell + vec2(0.0, 1.0)), hash21(cell + vec2(1.0, 1.0)), local.x);
+  return mix(lower, upper, local.y);
+}
+
+// Render one sparse layer of point stars. Scale controls depth and speed
+// controls the gentle parallax drift of that layer.
+float starLayer(vec2 point, float scale, float speed) {
+  vec2 cell = floor(point * scale);
+  vec2 local = fract(point * scale) - 0.5;
+  float seed = hash21(cell);
+  vec2 offset = vec2(
+    hash21(cell + vec2(17.0, 3.0)),
+    hash21(cell + vec2(5.0, 29.0))
+  ) - 0.5;
+  offset *= 0.28;
+
+  float phase = seed * 24.0 + u_time * (0.45 + seed * 1.7) * speed;
+  float shimmer = 0.72 + 0.28 * sin(phase);
+  float radius = mix(0.012, 0.027, seed * seed);
+  float pointLight = 1.0 - smoothstep(0.0, radius, length(local - offset));
+  float halo = exp(-length(local - offset) * 22.0) * 0.14;
+  return (pointLight + halo) * shimmer * (0.35 + seed * 0.9);
+}
+
+void main() {
+  float aspect = u_resolution.x / max(u_resolution.y, 1.0);
+  vec2 point = (gl_FragCoord.xy - 0.5 * u_resolution) / u_resolution.y;
+  vec2 pointer = (u_pointer - 0.5) * vec2(aspect, 1.0);
+
+  // Let the cursor act like a soft viewing offset rather than a bright spot.
+  point += pointer * 0.045;
+
+  float angle = 0.035 * sin(u_time * 0.07);
+  mat2 turn = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
+  point = turn * point;
+
+  float drift = u_time * 0.012;
+  vec3 color = vec3(0.0025, 0.004, 0.012);
+
+  // A barely visible cloud gives the empty space depth without washing out
+  // the stars or competing with the sketch underneath.
+  float cloud = valueNoise(point * 2.7 + vec2(drift, -drift * 0.7));
+  cloud *= 1.0 - smoothstep(0.2, 1.2, length(point));
+  color += vec3(0.018, 0.028, 0.062) * smoothstep(0.46, 0.82, cloud);
+
+  // Near, middle, and far layers move at different rates for a slow parallax
+  // effect. Their cool tints remain close enough to white to read as stars.
+  float nearStars = starLayer(point + vec2(drift * 1.8, -drift), 18.0, 1.0);
+  float middleStars = starLayer(point + vec2(-drift * 0.8, drift * 0.55), 34.0, 0.65);
+  float farStars = starLayer(point + vec2(drift * 0.35, drift * 0.18), 62.0, 0.35);
+  color += vec3(0.72, 0.82, 1.0) * nearStars * 0.8;
+  color += vec3(0.82, 0.86, 0.96) * middleStars * 0.68;
+  color += vec3(0.92, 0.93, 1.0) * farStars * 0.52;
+
+  // A restrained vignette keeps attention in the center of the field.
+  float vignette = 1.0 - smoothstep(0.15, 1.35, length(point));
+  color *= 0.72 + 0.28 * vignette;
+  outColor = vec4(color, 1.0);
+}`;
 
 // An analytical 2D Stokes-flow field. This is intentionally a single editable
 // fragment shader rather than the stateful, multipass Navier-Stokes solver in
@@ -230,50 +322,6 @@ void main() {
   vec3 color = vec3(v_uv.x, v_uv.y, 0.55 + 0.35 * sin(u_time));
   color += ring * vec3(1.0, 0.85, 0.35);
   color += 0.18 / (0.04 + distance(v_uv, u_pointer)) * vec3(0.15, 0.35, 0.7);
-  outColor = vec4(color, 1.0);
-}`;
-
-export const RAINBOW_GEOMETRY_FRAGMENT_SOURCE = `#version 300 es
-precision highp float;
-
-#define MAX_SEGMENTS 128
-
-uniform vec2 u_resolution;
-uniform float u_time;
-uniform vec2 u_pointer;
-uniform vec4 u_segments[MAX_SEGMENTS];
-uniform float u_segmentCount;
-
-in vec2 v_uv;
-out vec4 outColor;
-
-vec2 closestPointOnSegment(vec2 p, vec2 a, vec2 b) {
-  vec2 ab = b - a;
-  return a + ab * clamp(dot(p - a, ab) / max(dot(ab, ab), 0.000001), 0.0, 1.0);
-}
-
-vec3 spectrum(float t) {
-  return 0.56 + 0.44 * cos(6.28318 * (t + vec3(0.0, 0.67, 0.33)));
-}
-
-void main() {
-  vec2 pixel = v_uv * u_resolution;
-  float minDistance = 100000.0;
-  for (int index = 0; index < MAX_SEGMENTS; index++) {
-    if (float(index) >= u_segmentCount) break;
-    vec4 segment = u_segments[index];
-    vec2 nearest = closestPointOnSegment(pixel, segment.xy * u_resolution, segment.zw * u_resolution);
-    minDistance = min(minDistance, distance(pixel, nearest));
-  }
-
-  float pointerDistance = distance(pixel, u_pointer * u_resolution);
-  minDistance -= 12.0 * exp(-pointerDistance * 0.025);
-  float band = floor(max(minDistance, 0.0) / 13.0);
-  float reach = smoothstep(150.0, 0.0, minDistance);
-  vec3 rainbow = spectrum(band / 11.0 + u_time * 0.035);
-  vec3 background = vec3(0.018, 0.022, 0.038);
-  vec3 color = mix(background, rainbow, reach * 0.86);
-  color += rainbow * pow(reach, 4.0) * 0.35;
   outColor = vec4(color, 1.0);
 }`;
 
@@ -515,8 +563,9 @@ void main() {
 
 export const SHADER_EXAMPLES = Object.freeze([
   Object.freeze({ id: "hello", label: "Hello GLSL", name: "Hello GLSL", source: HELLO_GLSL_FRAGMENT_SOURCE, mode: "fragment", summary: "Minimal animated fragment shader and uniform reference." }),
-  Object.freeze({ id: "minimal-raymarch", label: "Minimal / Twigl raymarch", name: "Minimal Twigl raymarch", source: SHADERTOY_MINIMAL_RAYMARCH_SOURCE, mode: "fragment", dialect: "shadertoy", summary: "Code-golf-style fragment body with Twigl aliases and no main boilerplate." }),
-  Object.freeze({ id: "rainbow", label: "Rainbow geometry", name: "Rainbow geometry shader", source: RAINBOW_GEOMETRY_FRAGMENT_SOURCE, mode: "fragment", summary: "Distance-field rainbow bands around Underscores scene geometry." }),
+  Object.freeze({ id: "minimal-raymarch", label: "Minimal / Twigl space raymarch", name: "Minimal Twigl space raymarch", source: SHADERTOY_MINIMAL_RAYMARCH_SOURCE, mode: "fragment", dialect: "shadertoy", summary: "Code-golf-style silver-blue space field with Twigl aliases and no main boilerplate." }),
+  Object.freeze({ id: "quarksoup", label: "Quark soup", name: "Quark soup", source: SHADERTOY_QUARKSOUP_SOURCE, mode: "fragment", dialect: "shadertoy", summary: "Mouse-reactive compact raymarch of warm primordial plasma and vacuum turbulence." }),
+  Object.freeze({ id: "starfield", label: "Starfield", name: "Starfield", source: STARFIELD_FRAGMENT_SOURCE, mode: "fragment", summary: "Commented GLSL 300 ES starfield with deterministic stars, depth drift, and a quiet nebula." }),
   Object.freeze({ id: "shadow", label: "2D shadows", name: "2D shadow simulation", source: SHADOW_CASTING_FRAGMENT_SOURCE, mode: "fragment", summary: "Pointer-driven 2D ray casting against Underscores scene geometry." }),
   Object.freeze({ id: "fluid", label: "Fluid brush", name: "Fluid brush shader", source: FLUID_BRUSH_FRAGMENT_SOURCE, mode: "feedback", summary: "Interactive ping-pong GLSL dye brush with editable feedback source." }),
   Object.freeze({ id: "inkwash", label: "Inkwash", name: "Inkwash shader", source: INKWASH_FRAGMENT_SOURCE, mode: "feedback", summary: "Wet-paper pigment feedback with drying, chromatography, grain, and edge pooling." }),
@@ -574,7 +623,7 @@ export const validateShaderSource = (source, value = {}) => {
   const text = String(source || "");
   if (!text.trim()) return { valid: false, error: "Enter a GLSL fragment shader before running this node." };
   const mode = normalizeShaderSourceMode(value?.runtime?.settings?.shaderDialect || value?.shaderDialect || value);
-  if (mode === "standard" && !/\bvoid\s+main\s*\(/.test(text)) return { valid: false, error: "The fragment shader needs a void main() entry point, or choose Minimal / Shadertoy source mode." };
+  if (mode === "standard" && !/\bvoid\s+main\s*\(/.test(text)) return { valid: false, error: "The fragment shader needs a void main() entry point, or choose Shadertoy / Twigl source mode." };
   let depth = 0;
   for (const character of text) {
     if (character === "{") depth += 1;

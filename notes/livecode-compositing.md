@@ -36,7 +36,7 @@ The implementation uses CSS transforms, opacity, `mix-blend-mode`, and two stabl
 - publish collaboration state for visual frames; or
 - add an animation loop for composition.
 
-Blend and translucency are not free: the browser may allocate an intermediate compositor surface, and cost scales primarily with overlapping pixel area and device density. A few bounded nodes are inexpensive. Several full-window Retina feedback nodes using Screen or Soft light can become fill-rate or GPU-memory limited. Keep Normal on nodes that do not need blending, avoid unnecessary full-canvas overlap, and use the existing performance monitor when building a dense visual patch.
+Blend and translucency are not free: the browser may allocate an intermediate compositor surface, and cost scales primarily with overlapping pixel area and device density. A few bounded nodes are inexpensive. Several full-window Retina feedback nodes using Screen or Soft light can become fill-rate or GPU-memory limited. Keep Normal on nodes that do not need blending, avoid unnecessary full-canvas overlap, and use the existing performance monitor when building a dense visual sketch.
 
 Do not add global `will-change`, canvas readback, or per-frame React state to this path. New adapters should declare capabilities in `livecodeAdapters.js` and render into the existing node wrapper.
 
@@ -64,4 +64,4 @@ The bundled feedback examples declare:
 
 Emission is authored shader behavior, not a general node/compositor setting. When enabled, the host supplies up to the bounded scene-segment budget and `u_sceneInteraction` lets those segments inject dye or wet pigment and add a small local flow. Inkwash can choose authored scene geometry or current physics-debug geometry as its emitter source. When disabled, pointer painting and feedback simulation continue, the segment count is zero, and scene-geometry collection is skipped.
 
-Patches created before this parameter existed may contain `runtime.settings.sceneInteraction`. The runtime uses that value only when the source has no `emission` declaration, preserving older scenes without keeping the demo control in general Node settings.
+Sketches created before this parameter existed may contain `runtime.settings.sceneInteraction`. The runtime uses that value only when the source has no `emission` declaration, preserving older scenes without keeping the demo control in general Node settings.

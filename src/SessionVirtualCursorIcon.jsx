@@ -92,3 +92,12 @@ export default function SessionVirtualCursorIcon({ tool = "selection" }) {
 
   return <g className="underscores-session-virtual-cursor-tool" transform="translate(2 2) scale(1.05)" {...ICON_PROPS}>{shape}</g>;
 }
+
+// Reuse the same tool paths in compact UI surfaces such as Screencast input.
+// Keeping one source for these symbols prevents the overlay from drifting back
+// to text glyphs when the canvas toolbar or playback cursor is updated.
+export function CanvasToolIcon({ tool = "selection", className = "" }) {
+  return <svg className={className} viewBox="0 0 32 32" fill="none" aria-hidden="true">
+    <SessionVirtualCursorIcon tool={tool} />
+  </svg>;
+}

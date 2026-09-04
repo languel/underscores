@@ -76,7 +76,7 @@ For a sustained controller, keep the grab/release lifecycle in one node and emit
 
 Start `/record start`, press Play, and make a short gesture with the mouse or camera. Stop with `/record stop`. History captures command and scene changes with a recoverable baseline; it does not bake the live solver into a stream of hundreds of geometry edits.
 
-Use `/history play` or the History panel's playhead to review the take. Export the session when you need a portable performance, or choose **Create walkthrough** to turn a useful range into a new guided lesson. Stop the Marionette walkthrough with **Restore** to return to the patch that existed before the case study, or **Keep** to leave the costume and rig in the current patch.
+Use `/history play` or the History panel's playhead to review the take. Export the session when you need a portable performance, or choose **Create walkthrough** to turn a useful range into a new guided lesson. Stop the Marionette walkthrough with **Restore** to return to the sketch that existed before the case study, or **Keep** to leave the costume and rig in the current sketch.
 
 ## Related commands
 

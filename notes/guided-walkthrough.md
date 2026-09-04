@@ -22,7 +22,7 @@ The Walkthrough panel (`/walkthrough`, `/tour`, or `/guide`) contains the librar
 
 The visible cursor and click halo render in a portal above the application. Motion uses CSS transforms and `requestAnimationFrame`; it does not serialize or write the scene on animation frames, and reduced-motion preferences disable travel animation. The narration card can be dragged by its title bar to keep help or Timeline visible; its position remains local to the current browser session.
 
-Before playback, Underscores captures a complete scene-exchange and presentation baseline and persists a local recovery record. Stop and completion both offer Keep Results or Restore Starting Patch. Reloading with an unfinished run offers the same choice, so walkthrough recovery does not depend on global undo/redo.
+Before playback, Underscores captures a complete scene-exchange and presentation baseline and persists a local recovery record. Stop and completion both offer Keep Results or Restore Starting Sketch. Reloading with an unfinished run offers the same choice, so walkthrough recovery does not depend on global undo/redo.
 
 Permission-sensitive, destructive, file, MIDI, and audio cues require a learner confirmation. Imported walkthroughs use the existing command safety policy.
 
@@ -47,7 +47,7 @@ Each run produces a local `underscores-walkthrough-run` JSON trace with cue exec
 
 A fresh visitor lands on an empty canvas with no panels open, so the first run offers an introduction rather than requiring the visitor to already know `/welcome`. `src/welcomeExperience.js` owns the decision and `src/WelcomeCard.jsx` renders it: a compact card on the panel surface listing the full tour, the Livecode, Physics, and Timeline lessons, **Browse documentation**, and **Start blank**.
 
-The offer is deliberately narrow. `shouldOfferWelcome` returns true only when the visitor has not dismissed it before, the canvas is empty, presentation mode is off, there is no `?scene=` reference, no saved patch was restored, and no walkthrough is already running. Reopening a saved patch, following a published scene link, joining a multiplayer room, or presenting are all deliberate arrivals and are never interrupted.
+The offer is deliberately narrow. `shouldOfferWelcome` returns true only when the visitor has not dismissed it before, the canvas is empty, presentation mode is off, there is no `?scene=` reference, no saved sketch was restored, and no walkthrough is already running. Reopening a saved sketch, following a published scene link, joining a multiplayer room, or presenting are all deliberate arrivals and are never interrupted.
 
 Any answer retires the offer permanently in `underscores_welcome_seen_v1`, including simply starting to draw: while the card is visible a one-shot capture listener on the canvas dismisses it on the first pointer down. `help.welcome.show` (`/welcome screen`) brings it back, which is how a presenter resets between demonstrations without clearing local storage.
 
@@ -58,15 +58,15 @@ The bundled library is onboarding plus one lesson for each priority area, in `sr
 - **Welcome to Underscores** (`guided-onboarding-v1`) — canvas, command palette, core panels, Documentation, Timeline and Info, visibly authored p5 and GLSL examples, explicit audio enablement, a compact audio/physics pendulum demonstration, and the final Keep/Restore decision. Run `/welcome` (or `/get_started`).
 - **Livecode: your first program** (`livecode-first-program-v1`) — one p5 node grown from a blank source through `@param` declarations to transport-linked score time, then composed with a shader underlay.
 - **Physics: make a drawing sound** (`physics-first-instrument-v1`) — the Musical gas world, a collision mapping into the Expressive Synth, mapping formulas, the debug overlay, and an assertion that waits for the learner's own body.
-- **Timeline: give the patch time** (`timeline-arrangement-v1`) — the three display modes, a loop, a linked node, quantized launch, and arrangement clips, kept deliberately separate because learners conflate transport time, a node's clock, and a clip.
+- **Timeline: give the sketch time** (`timeline-arrangement-v1`) — the three display modes, a loop, a linked node, quantized launch, and arrangement clips, kept deliberately separate because learners conflate transport time, a node's clock, and a clip.
 - **Wayang puppet and a Miro mobile** (`wayang-mobile-instrument-v1`) — an articulated rod puppet that plays a hanging mobile. It builds and reads two rigs, authors the collision mappings that make the mobile an instrument, then hands over both control paths: dragging a running body with the mouse, and the MediaPipe rod controller for both hands at once.
 - **Physics marionette** (`physics-marionette-study-v1`) — the longer case study.
 
 Three constraints keep these playable. A step's `focusTarget` must be a registered semantic target, or the walkthrough cursor silently freezes at the previous step's position; `app.commandPalette` resolves `#command-palette-input` first, since the live palette has no `role="dialog"` ancestor and no bare `.command-palette` class. An assertion step needs a hint, because the hint is the learner's recovery path. And a command that throws without a selection — `arrangement.clip.add` is the example — stays a learner action rather than an automated cue.
 
-One further timing constraint: an assertion is evaluated once, immediately after a step's last cue, and a failure drops the learner into a Check prompt rather than retrying. A `physics.state` assertion on `playing` reads React state, so a step that starts a world needs a later cue after `physics.play` to give that state a beat to propagate; otherwise the learner sees a spurious warning on a step that actually succeeded. The welcome command is the first entry in an empty Command Palette, and its `walkthrough.welcome` ID is exposed to WebMCP through the shared command catalog. Info stays synchronized with the current control or walkthrough step, while Documentation provides the searchable learning library and follow-up help patches.
+One further timing constraint: an assertion is evaluated once, immediately after a step's last cue, and a failure drops the learner into a Check prompt rather than retrying. A `physics.state` assertion on `playing` reads React state, so a step that starts a world needs a later cue after `physics.play` to give that state a beat to propagate; otherwise the learner sees a spurious warning on a step that actually succeeded. The welcome command is the first entry in an empty Command Palette, and its `walkthrough.welcome` ID is exposed to WebMCP through the shared command catalog. Info stays synchronized with the current control or walkthrough step, while Documentation provides the searchable learning library and follow-up help sketches.
 
-Documentation is a separate dockable panel (`/documentation`, `/docs`, or `/help`). It opens in the left dock by default, may move to the right, float, or join the bottom dock, and contains a persistent table of contents for reference topics and patch-based lessons. Its text-size control is stored locally, and Documentation keeps the compact **Getting started** shortcut at the top. Info stays focused on compact contextual summaries and links into Documentation rather than duplicating the full catalog.
+Documentation is a separate dockable panel (`/documentation`, `/docs`, or `/help`). It opens in the left dock by default, may move to the right, float, or join the bottom dock, and contains a persistent table of contents for reference topics and sketch-based lessons. Its text-size control is stored locally, and Documentation keeps the compact **quick tour** shortcut at the top. Info stays focused on compact contextual summaries and links into Documentation rather than duplicating the full catalog.
 
 ## Implementation map
 
@@ -76,6 +76,6 @@ Documentation is a separate dockable panel (`/documentation`, `/docs`, or `/help
 - `src/WalkthroughPanel.jsx`: browsing, playback, authoring, validation, and trace export.
 - `src/walkthroughCatalog.js`: onboarding, the Livecode/Physics/Timeline lessons, the marionette case study, and bundled help entries.
 - `src/welcomeExperience.js` and `src/WelcomeCard.jsx`: the first-run offer and the rules that suppress it.
-- `src/DocumentationPanel.jsx`: searchable table of contents, help-patch actions, and locally persisted reading size.
+- `src/DocumentationPanel.jsx`: searchable table of contents, help-sketch actions, and locally persisted reading size.
 - `src/InfoPanel.jsx`: contextual hover, focus, and active-editor reference only.
 - `src/webmcp.js`: WebMCP discovery and control.

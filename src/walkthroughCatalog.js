@@ -1,23 +1,18 @@
 import { createWalkthrough } from "./walkthroughSystem.js";
+import { getP5Example } from "./p5Frame.js";
 
-const P5_SOURCE = `function setup() {
-  createCanvas(520, 300);
-  noStroke();
-}
+const TIXY_TOUR_SOURCE = `// A small wave field: t, i, x, and y are the only inputs.
+sin(t * .75 + hypot(x - 7.5, y - 7.5)) * .72`;
+const P5_SOURCE = getP5Example("pollock-splatter")?.source || "";
 
-function draw() {
-  background(12, 14, 20);
-  const x = width / 2 + cos(frameCount * 0.025) * 150;
-  const y = height / 2 + sin(frameCount * 0.04) * 80;
-  fill(90, 210, 255);
-  circle(x, y, 54);
-}`;
+// Both tour shaders derive their motion from the 174 BPM score clock. The
+// underlooped Strudel demo runs at the same tempo, while remaining on its own
+// audio clock so stopping Timeline does not silence the tour soundtrack.
+const QUARKSOUP_TOUR_SOURCE = `// Mouse-reactive quark soup, pulsing on the 174 BPM score beat.
+float b=t*(174./60.);float pulse=.84+.16*pow(.5+.5*cos(6.283185*b),8.);vec3 p;vec2 q=(m.xy/r-.5)*2.;for(float i,z,d;i++<96.;o+=vec4(.64,.28,.10,0.)/max(d,.002))p=z*normalize(vec3(FC.xy-.5*r,r.y)),p.xy*=mat2(cos(z*.08+vec4(0,33,11,0))),p.xy+=q*(.18+.24*sin(z*.17+b*.062)),p.z+=b*.155,z+=d=length(cos(p*.62)+sin(p.yzx*1.7+b*.062))/7.;o=tanh(o/2.8e3)*pulse;o.a=1.;`;
 
-const GLSL_SOURCE = `void main() {
-  vec2 uv = (FC.xy - 0.5 * r.xy) / r.y;
-  float wave = 0.5 + 0.5 * sin(10.0 * length(uv) - t * 2.0);
-  o = vec4(mix(vec3(0.1, 0.25, 0.8), vec3(1.0, 0.25, 0.55), wave), 1.0);
-}`;
+const TWIGL_BEAT_SOURCE = `// A compact Twigl-style star pulse locked to 174 BPM.
+float b=t*(174./60.),a=6.283185*b;vec2 p=(FC.xy-.5*r)/r.y;vec3 c=vec3(0);for(float i=0.;i<18.;i++){vec2 q=p+vec2(sin(i*91.7),cos(i*47.3))*.42;float star=pow(max(0.,1.-length(q)*7.),18.);c+=star*(.55+.45*cos(a+i*.7))*vec3(.55,.72,1.);}float halo=.018/max(length(p)-.12-.018*sin(a),.008);o=vec4(c+halo*vec3(.18,.32,.55),1.);`;
 
 // The Livecode lesson deliberately grows one source in three passes: a plain
 // sketch, the same sketch with a declared parameter, and finally the same
@@ -104,25 +99,26 @@ export const MARIONETTE_WALKTHROUGH_ID = "physics-marionette-study-v1";
 
 export const ONBOARDING_WALKTHROUGH = createWalkthrough({
   id: ONBOARDING_WALKTHROUGH_ID,
-  revision: 2,
+  revision: 4,
   title: "Welcome to Underscores",
-  description: "A guided introduction to Underscores as an infinite creative computational canvas for performance, teaching, exploration, and research, with the palette, panels, Documentation, Livecode, sound, physics, and the keep-or-restore decision at the end.",
+  description: "A demo-first tour of the minimal interface, panels, Documentation, Timeline, Tixy and Pollock p5, tempo-linked shaders, and the wider collaborative instrument.",
   clockMode: "free",
   defaultRate: 1,
   steps: [
     {
       id: "welcome",
       title: "An infinite creative computational canvas",
-      narration: "Underscores is an infinite creative computational canvas for performance, teaching, exploration, and research. Drawing, code, sound, motion, physics, collaboration, and time all meet in one document, called a **patch**.\n\nThis tour takes about five minutes. Nothing is uploaded, and at the end you choose whether to keep what it builds or return to exactly the patch you started with.",
+      showTitle: false,
+      narration: "_Underscores_ is an infinite creative computation canvas for performance, teaching, exploration and research. Drawing, code, sound, motion, physics, collaboration, and time all meet in one canvas _sketch_.\n\nThis tour takes about five minutes. Nothing is uploaded, and at the end you choose whether to keep what it builds or return to exactly the sketch you started with.",
       info: "Guided walkthroughs use the same registered commands as the palette, the assistant, WebMCP, History, and Playlist. Press Continue whenever you are ready; you can pause or stop at any point.",
       focusTarget: "canvas",
       advance: { mode: "continue" },
     },
     {
       id: "palette",
-      title: "The command palette",
-      narration: "The palette is the fastest way to find anything. Type part of a command name, an alias, or a slash form and press Enter.\n\nWatch the cursor open it now.",
-      info: "Command/Ctrl+/ opens the palette. Every panel also has a slash name, so /physics, /transport, and /docs all work here. Option/Alt+Shift+- opens the compact contextual command field instead, which passes the current selection along.",
+      title: "A minimal interface, on purpose",
+      narration: "Press **/** to open the command palette; **Command/Ctrl+/** works too. Search by name or type a slash command, then press Enter.\n\nThe canvas stays minimal for performance. Panels appear only when you ask for them: use commands such as `/outliner`, `/properties`, `/assistant`, and `/code`, or double-click a dock edge to reveal or collapse it.",
+      info: "Shortcuts: / or Command/Ctrl+/ opens the palette. Command/Ctrl+B, Command/Ctrl+Option+B, and Command/Ctrl+Shift+B toggle the left, right, and bottom docks. Option/Alt+Shift+- opens the contextual command field with the current selection.",
       focusTarget: "app.commandPalette",
       cues: [{ type: "command", commandId: "commandPalette.open", at: 0.45 }],
       advance: { mode: "continue" },
@@ -130,26 +126,26 @@ export const ONBOARDING_WALKTHROUGH = createWalkthrough({
     },
     {
       id: "panels",
-      title: "Panels are views, not separate worlds",
-      narration: "Outliner, Script, Assistant, Multiplayer, Properties, and Settings all operate on the same patch. Two panels showing one Livecode source are two views of one file, never competing drafts.\n\nPanels dock left, dock right, float, or collapse to an edge handle.",
-      info: "Command/Ctrl+B, Command/Ctrl+Option+B, and Command/Ctrl+Shift+B collapse the left, right, and bottom docks. Ctrl+Alt+Shift+D resets the workspace to defaults. Panel layout is presentation state, so a walkthrough can teach the interface without storing brittle screen coordinates.",
+      title: "One sketch, many views",
+      narration: "Watch the same sketch appear through **Outliner**, **Properties**, and the **AI assistant**. Each panel lingers long enough to orient you, and the tour ends in **Code**. Panels are views of shared objects—not separate documents.\n\nAt the end of this card, allow the audio cue to start the editable **underlooped** Strudel song as our backdrop.",
+      info: "Panel shortcuts: /outliner, /properties, /assistant, and /code. The audio cue requires a real learner gesture; choose Allow, and click the canvas once if the browser is still silent.",
       focusTarget: "panel.script",
       cues: [
         { type: "command", commandId: "commandPalette.close", at: 0 },
-        { type: "command", commandId: "panel.open", args: { panelId: "outliner" }, at: 0.25 },
-        { type: "command", commandId: "panel.open", args: { panelId: "script" }, at: 0.75 },
-        { type: "command", commandId: "panel.open", args: { panelId: "chat" }, at: 1.25 },
-        { type: "command", commandId: "panel.open", args: { panelId: "collaboration" }, at: 1.75 },
-        { type: "command", commandId: "panel.open", args: { panelId: "properties" }, at: 2.25 },
-        { type: "command", commandId: "panel.open", args: { panelId: "settings" }, at: 2.75 },
+        { type: "command", commandId: "panel.open", args: { panelId: "outliner" }, at: 0.5 },
+        { type: "command", commandId: "panel.open", args: { panelId: "properties" }, at: 2.4 },
+        { type: "command", commandId: "panel.open", args: { panelId: "chat" }, at: 4.3 },
+        { type: "command", commandId: "panel.open", args: { panelId: "script" }, at: 6.2 },
+        { type: "command", commandId: "strudel.demo.underlooped", at: 8.1 },
       ],
       advance: { mode: "continue" },
+      hint: "Choose Allow for the underlooped cue. The Code panel is the last panel opened before the music starts.",
     },
     {
       id: "documentation",
       title: "Where the answers live",
-      narration: "Documentation is the searchable library. Its table of contents starts with **Getting started**, then covers Livecode, Physics, Timeline, and every panel; the bundled help patches and walkthroughs are listed underneath.\n\nSearch matches titles, keywords, and body text together, so `physics midi` goes straight to the mapping pages.",
-      info: "Open it with /docs, /documentation, or /help. The Getting started button at its top re-runs this tour; /welcome does the same from the palette. Info, docked at the bottom, stays the short contextual reference and links here for the long version.",
+      narration: "Documentation is the searchable reference for the canvas, Livecode, Physics, Timeline, panels, shortcuts, and bundled help sketches. Search matches titles, keywords, and body text together.\n\nShortcut: press **?** anywhere on the canvas. Palette commands `/documentation`, `/docs`, and `/help` open it too.",
+      info: "Shortcuts: ? opens Documentation; /documentation, /docs, or /help opens it from the palette; /welcome restarts this quick tour.",
       focusTarget: "panel.documentation",
       cues: [
         { type: "command", commandId: "panel.open", args: { panelId: "documentation" }, at: 0.2 },
@@ -158,77 +154,67 @@ export const ONBOARDING_WALKTHROUGH = createWalkthrough({
       hint: "Documentation opens in the left dock by default. It can move to the right, float, or join the bottom dock beside Timeline.",
     },
     {
-      id: "timeline-info",
-      title: "Timeline and contextual help",
-      narration: "Timeline supplies shared musical and visual time: frames, timecode, or bars and beats, with tempo, meter, loops, and arrangement lanes.\n\nInfo follows the current walkthrough step, and also explains any control you hover or focus.",
-      info: "Space plays and pauses. Shift+Left and Shift+Right jump to the timeline or loop start and end. Walkthroughs may use a free clock or follow the transport; this tour uses a free clock so you can pause anywhere.",
-      focusTarget: "panel.info",
+      id: "timeline",
+      title: "Timeline is the shared clock",
+      narration: "This is the actual **Timeline**: frames, timecode, or bars and beats, with tempo, meter, loops, and arrangement lanes. It now runs at **174 BPM**, matching underlooped, so linked visual nodes can move with the song.",
+      info: "Shortcuts: Space plays or pauses; Shift+Left and Shift+Right jump to the timeline or loop start and end; /timeline or /transport shows this panel.",
+      focusTarget: "panel.transport",
       cues: [
+        { type: "command", commandId: "panel.close", args: { panelId: "info" }, at: 0 },
         { type: "command", commandId: "panel.open", args: { panelId: "transport" }, at: 0.25 },
-        { type: "command", commandId: "panel.open", args: { panelId: "info" }, at: 0.75 },
+        { type: "command", commandId: "transport.update", args: { state: { tempo: 174, displayMode: "beats", playing: true } }, at: 0.8 },
       ],
       advance: { mode: "continue" },
     },
     {
       id: "p5",
-      title: "A p5 Livecode node",
-      narration: "A **Livecode node** is a self-contained program living on the canvas. The cursor will create a blank one and type into it, exactly as you would.\n\nThis one draws an orbiting cyan dot.",
-      info: "p5 nodes can run freely or link to transport time, expose @param values, receive events, and stay editable inside the patch. Command/Ctrl+Enter runs the node; Command/Ctrl+. stops the node under the pointer.",
-      focusTarget: "editor.livecode",
+      title: "Type Tixy, then choose Pollock",
+      narration: "A **Livecode node** is a self-contained program living on the canvas. First watch a tiny **Tixy** expression type into a node: its `t`, `i`, `x`, and `y` values become a moving field. Then use the node's **Example** menu to choose the bundled **Pollock / Splatter** p5 sketch and run it. Drag over Pollock's output to paint: slow gestures make broad marks and fast ones make threads and splatter.\n\nHover the **Script type** dropdown to see the other languages and runtimes available here.",
+      info: "Shortcuts: /live tixy and /live p5 create nodes; Command/Ctrl+Enter runs or updates the selected node; Command/Ctrl+. stops the node under the pointer; Ctrl+Option/Alt+B returns to the last Code editor.",
+      focusTarget: "editor.p5Example",
       cues: [
-        { type: "command", commandId: "panel.open", args: { panelId: "script" }, at: 0 },
-        { type: "command", commandId: "livecode.node.create", args: { kind: "p5", name: "Walkthrough orbit", source: "", running: false, transportMode: "free", view: "code", runtimeSettings: { autoUpdate: false } }, instantArgs: { kind: "p5", name: "Walkthrough orbit", source: P5_SOURCE, running: true, transportMode: "free", view: "code" }, at: 0.35 },
-        { type: "ui", action: "type", target: "editor.livecode", value: P5_SOURCE, at: 0.7, skipInInstant: true },
-        { type: "command", commandId: "livecode.node.update", args: { source: P5_SOURCE, running: true, runtimeSettings: { autoUpdate: false } }, at: 1.4, skipInInstant: true },
+        { type: "command", commandId: "panel.open", args: { panelId: "script", options: { scriptType: "livecode" } }, at: 0 },
+        { type: "command", commandId: "livecode.node.create", args: { kind: "tixy", name: "Walkthrough Tixy", source: "", running: false, transportMode: "free", view: "code", offset: { x: -300, y: -165 }, runtimeSettings: { autoUpdate: false } }, at: 0.25 },
+        { type: "ui", action: "type", target: "editor.livecode", value: TIXY_TOUR_SOURCE, typingDelay: 18, at: 0.65, skipInInstant: true },
+        { type: "command", commandId: "livecode.node.update", args: { source: TIXY_TOUR_SOURCE, running: true, view: "preview", runtimeSettings: { autoUpdate: false } }, at: 2.4, skipInInstant: true },
+        { type: "command", commandId: "livecode.node.create", args: { kind: "p5", name: "Walkthrough Pollock", source: "", running: false, transportMode: "free", view: "code", offset: { x: 300, y: -165 }, runtimeSettings: { autoUpdate: false } }, at: 2.9 },
+        { type: "ui", action: "select", target: "editor.p5Example", value: "pollock-splatter", at: 3.35 },
+        { type: "command", commandId: "livecode.node.run", at: 3.8 },
       ],
-      advance: { mode: "assertion", assertion: { type: "scene.exists", kind: "p5", name: "Walkthrough orbit" } },
-      hint: "Look for the cyan p5 node on the canvas and its editable source in Script.",
+      advance: { mode: "assertion", assertion: { type: "scene.exists", kind: "p5", name: "Walkthrough Pollock" } },
+      hint: "Look for the warm paper-colored Pollock node. Drag across its output to paint, or press Space over the node to clear it.",
     },
     {
-      id: "glsl",
-      title: "A GLSL shader node",
-      narration: "Shader nodes use the same Livecode lifecycle while rendering a fragment program. This radial wave stays composable with everything else in the patch.",
-      info: "GLSL nodes support standard and Shadertoy-style inputs, transport time, layering, blending, and scene interaction. Above objects, Opacity, Blend, and Background are the shared composition controls for every visual node.",
+      id: "quarksoup",
+      title: "Quark soup on the beat",
+      narration: "Now the tour adds the mouse-reactive **Quark soup** shader. Move the pointer over it to bend the field. Its score clock runs at the same 174 BPM as underlooped, with a restrained pulse on each beat.",
+      info: "Shortcuts: /shader quarksoup creates this example; Command/Ctrl+Enter runs it; Command/Ctrl+Shift+Enter cycles Code, Output, overlay, and split views.",
       focusTarget: "canvas.selection",
       cues: [
-        { type: "command", commandId: "livecode.node.create", args: { kind: "shader", name: "Walkthrough radial shader", source: "", running: false, transportMode: "free", view: "code", runtimeSettings: { autoUpdate: false } }, instantArgs: { kind: "shader", name: "Walkthrough radial shader", source: GLSL_SOURCE, running: true, transportMode: "free", view: "preview" }, at: 0.35 },
-        { type: "ui", action: "type", target: "editor.livecode", value: GLSL_SOURCE, at: 0.7, skipInInstant: true },
-        { type: "command", commandId: "livecode.node.update", args: { source: GLSL_SOURCE, running: true, view: "preview", runtimeSettings: { autoUpdate: false } }, at: 1.4, skipInInstant: true },
+        { type: "command", commandId: "livecode.node.create", args: { kind: "shader", name: "Walkthrough Quark soup", source: QUARKSOUP_TOUR_SOURCE, running: true, transportMode: "linked", view: "preview", offset: { x: -300, y: 165 }, runtimeSettings: { autoUpdate: false, shaderDialect: "shadertoy" } }, at: 0.35 },
       ],
-      advance: { mode: "assertion", assertion: { type: "scene.exists", kind: "shader", name: "Walkthrough radial shader" } },
-      hint: "The shader is a second Livecode rectangle with a colorful animated preview.",
+      advance: { mode: "assertion", assertion: { type: "scene.exists", kind: "shader", name: "Walkthrough Quark soup" } },
+      hint: "The copper-colored shader is linked to Timeline. If it is still, press Space to restart the shared clock.",
     },
     {
-      id: "audio",
-      title: "Enable sound",
-      narration: "Browsers require a human gesture before audio can begin, so nothing here bypasses that.\n\nThe walkthrough is about to add a short Expressive Synth demo. Because that touches audio, Underscores will ask you to allow it first — choosing **Allow** is the deliberate gesture that starts sound.",
-      info: "Audio permission is never bypassed by automation. Permission-sensitive, destructive, file, MIDI, and audio cues always ask the learner. If the browser still reports suspended audio afterwards, use Enable audio in the Synth panel.",
-      focusTarget: "panel.synth",
+      id: "twigl",
+      title: "One canvas, many script types",
+      narration: "A second shader uses compact **Twigl / Shadertoy** syntax. Its star and halo pulse derives directly from the 174 BPM beat. The same Code panel also hosts Strudel, p5, Three.js, Manim, Markdown, HTML, SVG, Tixy, Orca, and more.\n\nHover or focus the **Script type** dropdown to browse them.",
+      info: "Shortcuts: /shader twigl creates the compact shader starter; /code opens the Code panel; Ctrl+Option/Alt+B returns to whichever Code editor was used last.",
+      focusTarget: "editor.scriptType",
       cues: [
-        { type: "command", commandId: "panel.open", args: { panelId: "synth" }, at: 0 },
-        { type: "command", commandId: "expressiveSynth.demo.create", at: 0.6 },
+        { type: "command", commandId: "panel.open", args: { panelId: "script" }, at: 0 },
+        { type: "command", commandId: "livecode.node.create", args: { kind: "shader", name: "Walkthrough Twigl beat", source: TWIGL_BEAT_SOURCE, running: true, transportMode: "linked", view: "code", offset: { x: 300, y: 165 }, runtimeSettings: { autoUpdate: false, shaderDialect: "shadertoy" } }, at: 0.35 },
+        { type: "ui", action: "focus", target: "editor.scriptType", at: 1.2 },
       ],
-      advance: { mode: "continue" },
-      hint: "If you declined the prompt, or heard nothing, open the Synth panel and press Enable audio, then continue.",
-    },
-    {
-      id: "physics",
-      title: "Motion can become a score",
-      narration: "This compact pendulum example connects deterministic physics to the score and the internal synth. It is built from ordinary canvas objects and authored mappings, not a separate demo runtime.",
-      info: "Physics bodies, constraints, collision mappings, and transport synchronization are authored state inside the same patch. A mapping runs Source → Filter → Transform → Target outside the render loop.",
-      focusTarget: "panel.physics",
-      cues: [
-        { type: "command", commandId: "panel.open", args: { panelId: "physics" }, at: 0 },
-        { type: "command", commandId: "demo.reich.pendulum.create", args: { count: 2, preset: "bowed", running: true, audio: true }, at: 0.35 },
-      ],
-      advance: { mode: "assertion", assertion: { type: "physics.state", minSystems: 1, minBodies: 2 } },
-      hint: "The Physics panel should be open and two pendulums should be swinging on the canvas. Press Play in Physics if they are still.",
+      advance: { mode: "assertion", assertion: { type: "scene.exists", kind: "shader", name: "Walkthrough Twigl beat" } },
+      hint: "The Script type control sits at the top of Code. Hover it for contextual help, or click it to see every runtime.",
     },
     {
       id: "finish",
-      title: "Keep this patch, or rewind it",
-      narration: "You have seen the palette, panels, Documentation, Timeline and Info, a p5 node, a shader, sound, and physics.\n\nPress **Done** to finish. You will be asked whether to keep these examples or restore the exact patch you started with.",
-      info: "Next: the Livecode, Physics, and Timeline walkthroughs go deeper on each area, and Documentation's Getting started section covers the canvas, panels, commands, shortcuts, and saving. Help patches and classroom walkthroughs use the same portable .__.json format.",
+      title: "A shared performance instrument",
+      narration: "This tour only opened the front door. _Underscores_ also includes **multiplayer**, an **AI assistant** that understands the current selection, authored **physics**, and **Score & MIDI** for turning motion and input into performance.\n\nPress **?** and continue in Documentation, or use `/multiplayer`, `/assistant`, `/physics`, and `/score`. Press **Done** to keep this demo sketch or restore exactly what you started with.",
+      info: "Shortcuts: ? opens Documentation; /multiplayer, /assistant, /physics, and /score reveal the deeper systems. Done offers Keep results or Restore starting sketch.",
       focusTarget: "panel.walkthrough",
       advance: { mode: "continue" },
     },
@@ -365,7 +351,7 @@ export const PHYSICS_WALKTHROUGH = createWalkthrough({
       id: "build-gas",
       title: "2. Build a world",
       narration: "Musical gas draws four walls plus a slack string, then fills the box with a seeded population of 250 particles.\n\nThe walls are ordinary canvas rectangles with fixed bodies. Select one and Properties will show its Physics role.",
-      info: "A population creates many seeded runtime instances from one template without putting hundreds of objects in the patch. Runtime-lite members keep only solver identity, pose, collider, tags, and render style, and are painted by a single imperative overlay. Materialize turns them into authored objects when you want to keep them.",
+      info: "A population creates many seeded runtime instances from one template without putting hundreds of objects in the sketch. Runtime-lite members keep only solver identity, pose, collider, tags, and render style, and are painted by a single imperative overlay. Materialize turns them into authored objects when you want to keep them.",
       focusTarget: "panel.physics",
       cues: [
         { type: "command", commandId: "physics.example.gas", at: 0.3 },
@@ -433,7 +419,7 @@ export const PHYSICS_WALKTHROUGH = createWalkthrough({
     {
       id: "finish",
       title: "8. Reset, apply, and keep going",
-      narration: "**Reset** returns to the authored baseline. **Apply current pose** makes the running arrangement the new baseline. While a world is paused, Paused edits decides whether an ordinary canvas transform updates that baseline or leaves it alone.\n\nPress Done to keep this world or restore the patch you started with.",
+      narration: "**Reset** returns to the authored baseline. **Apply current pose** makes the running arrangement the new baseline. While a world is paused, Paused edits decides whether an ordinary canvas transform updates that baseline or leaves it alone.\n\nPress Done to keep this world or restore the sketch you started with.",
       info: "Next: the Physics marionette case study builds an articulated rig, adds collision sound, drives a second rig from MediaPipe, and records a take. Documentation covers bodies and colliders, constraints, actuators, collision layers, posing, and performance in depth.",
       focusTarget: "panel.walkthrough",
       advance: { mode: "continue" },
@@ -446,7 +432,7 @@ export const PHYSICS_WALKTHROUGH = createWalkthrough({
 // time, a node's clock, and an arrangement clip.
 export const TIMELINE_WALKTHROUGH = createWalkthrough({
   id: TIMELINE_WALKTHROUGH_ID,
-  title: "Timeline: give the patch time",
+  title: "Timeline: give the sketch time",
   description: "Read the transport in frames, timecode, and beats, set tempo and a loop, link a node to score time, quantize its launch, and place it on an arrangement clip.",
   clockMode: "free",
   defaultRate: 1,
@@ -546,7 +532,7 @@ export const TIMELINE_WALKTHROUGH = createWalkthrough({
     {
       id: "finish",
       title: "9. Three separate ideas",
-      narration: "That is the whole model, and the ideas are worth keeping apart:\n\n**Transport time** is the shared clock. **A node's clock** decides whether that node reads it, and whose time it reads. **A clip** decides when something participates at all. **A lane mode** decides whether the timeline is derived from your objects or authored as its own edit.\n\nPress Done to keep this arrangement or restore your starting patch.",
+      narration: "That is the whole model, and the ideas are worth keeping apart:\n\n**Transport time** is the shared clock. **A node's clock** decides whether that node reads it, and whose time it reads. **A clip** decides when something participates at all. **A lane mode** decides whether the timeline is derived from your objects or authored as its own edit.\n\nPress Done to keep this arrangement or restore your starting sketch.",
       info: "Documentation covers Timeline overview, Frames, timecode, and beats, Seeking, zooming, and looping, Arrangement clips, Clip lanes, Editing clips, Arrangement recording, and How clips drive objects in depth.",
       focusTarget: "panel.walkthrough",
       advance: { mode: "continue" },
@@ -557,7 +543,7 @@ export const TIMELINE_WALKTHROUGH = createWalkthrough({
 // Two traditions meeting on one canvas: a wayang kulit rod puppet, whose arms
 // are articulated at shoulder and elbow so a puppeteer's rods can place a hand
 // precisely, and a Calder mobile hung with Miro-flavoured shapes. The puppet
-// plays the mobile. Every stage leaves a patch worth stopping on.
+// plays the mobile. Every stage leaves a sketch worth stopping on.
 export const WAYANG_WALKTHROUGH = createWalkthrough({
   id: WAYANG_WALKTHROUGH_ID,
   title: "Wayang puppet and a Miro mobile",
@@ -568,7 +554,7 @@ export const WAYANG_WALKTHROUGH = createWalkthrough({
     {
       id: "build",
       title: "1. A puppet and an instrument",
-      narration: "Two traditions, one patch. On the left, a **wayang kulit** rod puppet: a body that swings on a single rod, with arms jointed at the shoulder *and* the elbow, which is what lets a puppeteer place a hand exactly.\n\nOn the right, a **Calder mobile** hung with Miro-flavoured shapes. The puppet is going to play it.",
+      narration: "Two traditions, one sketch. On the left, a **wayang kulit** rod puppet: a body that swings on a single rod, with arms jointed at the shoulder *and* the elbow, which is what lets a puppeteer place a hand exactly.\n\nOn the right, a **Calder mobile** hung with Miro-flavoured shapes. The puppet is going to play it.",
       info: "Everything here is ordinary canvas objects with physics roles. Open Outliner and you will find Puppet head, Right hand, Red chime, and the rest by name rather than by generated id.",
       focusTarget: "panel.physics",
       cues: [
@@ -609,7 +595,7 @@ export const WAYANG_WALKTHROUGH = createWalkthrough({
       id: "sound",
       title: "4. The mobile is the instrument",
       narration: "Open Synth and enable audio — browsers need a deliberate gesture.\n\nTwo mappings are already authored. **Hand strikes mobile** listens for a hand tagged `wayang-hand` meeting a shape tagged `mobile-chime`. **Mobile shapes meet** listens for the shapes meeting each other, an octave up and quieter, so one strike sets off a small cascade.",
-      info: "Pitch comes from where the contact lands: the note expression reads contact height and impact strength through a five-tone scale inspired by slendro. It is an approximation for a teaching patch, not a tuned gamelan — real slendro is close to equidistant and varies by ensemble.",
+      info: "Pitch comes from where the contact lands: the note expression reads contact height and impact strength through a five-tone scale inspired by slendro. It is an approximation for a teaching sketch, not a tuned gamelan — real slendro is close to equidistant and varies by ensemble.",
       focusTarget: "panel.physics",
       cues: [
         { type: "command", commandId: "panel.open", args: { panelId: "synth" }, at: 0 },
@@ -654,15 +640,15 @@ export const WAYANG_WALKTHROUGH = createWalkthrough({
     {
       id: "finish",
       title: "8. Perform it, or take it apart",
-      narration: "You have an instrument. Record a take with History, sequence entrances with Playlist, or hide the chrome with presentation mode and play it for a room.\n\nOr take it apart: change a chime's material and it rings differently, move a wire and the mobile rebalances, add a third arm segment and the reach changes.\n\nPress Done to keep this patch or restore the one you started with.",
-      info: "Everything here is authored state in one .__.json patch, so the whole instrument travels as a file. Documentation covers bodies, constraints, actuators, mappings, and mapping formulas in depth.",
+      narration: "You have an instrument. Record a take with History, sequence entrances with Playlist, or hide the chrome with presentation mode and play it for a room.\n\nOr take it apart: change a chime's material and it rings differently, move a wire and the mobile rebalances, add a third arm segment and the reach changes.\n\nPress Done to keep this sketch or restore the one you started with.",
+      info: "Everything here is authored state in one .__.json sketch, so the whole instrument travels as a file. Documentation covers bodies, constraints, actuators, mappings, and mapping formulas in depth.",
       focusTarget: "panel.walkthrough",
       advance: { mode: "continue" },
     },
   ],
 });
 
-// A case study rather than a one-shot demo: each stage leaves the patch in a
+// A case study rather than a one-shot demo: each stage leaves the sketch in a
 // useful, inspectable state so a teacher can stop, explain, or let a learner
 // take over before continuing. The first command uses the same Marionette
 // builder as the Physics panel and `/physics demo marionette`; subsequent
@@ -758,7 +744,7 @@ export const MARIONETTE_WALKTHROUGH = createWalkthrough({
       id: "review-take",
       title: "7. Rewind and play it back",
       narration: "Stop the take and play it back from its captured baseline. This is the hand-off point for clips: rehearse, export the History session, or create a polished Walkthrough from the useful range.",
-      info: "Playback is deterministic for recorded commands and scene changes. Keep the Marionette as authored state, or stop the walkthrough with Restore to return to the patch that existed before the lesson.",
+      info: "Playback is deterministic for recorded commands and scene changes. Keep the Marionette as authored state, or stop the walkthrough with Restore to return to the sketch that existed before the lesson.",
       focusTarget: "panel.history",
       cues: [
         { type: "command", commandId: "history.record.stop", at: 0 },
@@ -781,14 +767,14 @@ export const BUNDLED_WALKTHROUGHS = Object.freeze([
 ]);
 
 export const BUNDLED_HELP_CATALOG = Object.freeze([
-  { id: "onboarding", title: "Welcome to Underscores", category: "Getting started", tags: ["tour", "canvas", "panels", "performance", "teaching", "exploration", "research"], summary: "A guided tour of an infinite creative computational canvas for performance, teaching, exploration, and research.", walkthroughId: ONBOARDING_WALKTHROUGH.id },
+  { id: "onboarding", title: "Welcome to Underscores", category: "Getting started", tags: ["tour", "canvas", "panels", "performance", "teaching", "exploration", "research"], summary: "A demo-first tour of the minimal interface, Documentation, Timeline, Pollock p5, underlooped, and tempo-linked shaders.", walkthroughId: ONBOARDING_WALKTHROUGH.id },
   { id: "livecode-first-program", title: "Livecode: your first program", category: "Getting started", tags: ["livecode", "p5", "parameters", "transport", "shader", "compositing"], summary: "Grow one p5 node from a blank source into a parameterized, transport-linked sketch, then compose it with a shader.", walkthroughId: LIVECODE_WALKTHROUGH.id },
   { id: "physics-first-instrument", title: "Physics: make a drawing sound", category: "Getting started", tags: ["physics", "collision", "mapping", "synth", "population", "debug"], summary: "Build the Musical gas world, map its collisions to the internal synth, then give your own drawing a body.", walkthroughId: PHYSICS_WALKTHROUGH.id },
-  { id: "timeline-arrangement", title: "Timeline: give the patch time", category: "Getting started", tags: ["timeline", "transport", "tempo", "loop", "linked", "quantize", "clips", "arrangement"], summary: "Read the transport three ways, loop it, link a node to score time, quantize its launch, and place it on a clip.", walkthroughId: TIMELINE_WALKTHROUGH.id },
+  { id: "timeline-arrangement", title: "Timeline: give the sketch time", category: "Getting started", tags: ["timeline", "transport", "tempo", "loop", "linked", "quantize", "clips", "arrangement"], summary: "Read the transport three ways, loop it, link a node to score time, quantize its launch, and place it on a clip.", walkthroughId: TIMELINE_WALKTHROUGH.id },
   { id: "p5", title: "p5 Livecode", category: "Livecode", tags: ["javascript", "visuals", "p5"], summary: "Create visual sketches that live on the canvas.", walkthroughId: LIVECODE_WALKTHROUGH.id, stepId: "write-source", insertCommand: { id: "livecode.node.create", args: { kind: "p5", name: "Help p5 sketch", source: P5_SOURCE, running: true, transportMode: "free" } } },
-  { id: "glsl", title: "GLSL shaders", category: "Livecode", tags: ["shader", "glsl", "visuals"], summary: "Render fragment shaders with shared time and composition.", walkthroughId: ONBOARDING_WALKTHROUGH.id, stepId: "glsl", insertCommand: { id: "livecode.node.create", args: { kind: "shader", name: "Help radial shader", source: GLSL_SOURCE, running: true, transportMode: "free" } } },
+  { id: "glsl", title: "GLSL shaders", category: "Livecode", tags: ["shader", "glsl", "visuals"], summary: "Render fragment shaders with shared time and composition.", walkthroughId: ONBOARDING_WALKTHROUGH.id, stepId: "quarksoup", insertCommand: { id: "livecode.node.create", args: { kind: "shader", name: "Help Quark soup", source: QUARKSOUP_TOUR_SOURCE, running: true, transportMode: "linked" } } },
   { id: "livecode-parameters", title: "Livecode parameters", category: "Livecode", tags: ["param", "parameters", "controls", "color", "number"], summary: "Turn hard-coded values into @param controls read through __.params.", walkthroughId: LIVECODE_WALKTHROUGH.id, stepId: "parameters", insertCommand: { id: "livecode.node.create", args: { kind: "p5", name: "Help parameter sketch", source: LIVECODE_PARAM_SOURCE, running: true, transportMode: "free" } } },
-  { id: "audio-physics", title: "Audio and physics", category: "Systems", tags: ["sound", "physics", "mapping"], summary: "Connect movement and collisions to the internal synth.", walkthroughId: ONBOARDING_WALKTHROUGH.id, stepId: "audio", insertCommand: { id: "demo.reich.pendulum.create", args: { count: 2, preset: "bowed", running: false, audio: false } } },
+  { id: "audio-physics", title: "Audio and physics", category: "Systems", tags: ["sound", "physics", "mapping"], summary: "Connect movement and collisions to the internal synth.", walkthroughId: PHYSICS_WALKTHROUGH.id, stepId: "sound", insertCommand: { id: "demo.reich.pendulum.create", args: { count: 2, preset: "bowed", running: false, audio: false } } },
   { id: "physics-musical-gas", title: "Musical gas", category: "Systems", tags: ["physics", "population", "collision", "performance", "mapping"], summary: "A 250-particle seeded population whose body and wall hits drive distinct sounds.", walkthroughId: PHYSICS_WALKTHROUGH.id, stepId: "build-gas", insertCommand: { id: "physics.example.gas", args: {} } },
   { id: "wayang-mobile", title: "Wayang puppet and a Miro mobile", category: "Systems", tags: ["physics", "wayang", "puppet", "mobile", "calder", "miro", "gamelan", "mediapipe", "mouse", "instrument"], summary: "An articulated rod puppet that plays a hanging mobile, driven by the mouse or by MediaPipe wrists.", walkthroughId: WAYANG_WALKTHROUGH.id, stepId: "build", insertCommand: { id: "physics.example.wayang", args: {} } },
   { id: "physics-marionette", title: "Physics marionette case study", category: "Systems", tags: ["physics", "marionette", "rigging", "mediapipe", "history", "performance"], summary: "Build a Bauhaus paper doll, rig it, make it musical, drive a second rig from MediaPipe, and record a take.", walkthroughId: MARIONETTE_WALKTHROUGH.id, stepId: "construct-costume", insertCommand: { id: "physics.example.marionette", args: {} } },

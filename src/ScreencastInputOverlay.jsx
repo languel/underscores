@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import {
   clampScreencastPosition,
   readScreencastPosition,
-  screencastToolIcon,
   screencastToolLabel,
   writeScreencastPosition,
 } from "./screencastInput.js";
+import { CanvasToolIcon } from "./SessionVirtualCursorIcon.jsx";
 
 const MAX_VISIBLE_EVENTS = 4;
 
@@ -50,15 +50,11 @@ const MouseGlyph = ({ event, compact = false }) => {
   );
 };
 
-const HandToolGlyph = ({ compact = false }) => (
-  <svg className={`underscores-screencast-input-hand-glyph${compact ? " is-compact" : ""}`} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M7.2 13.7V8.4a1.15 1.15 0 0 1 2.3 0v3.1V6.6a1.15 1.15 0 0 1 2.3 0v4.9V7.8a1.15 1.15 0 0 1 2.3 0v4.1V9.3a1.15 1.15 0 0 1 2.3 0v5.1c0 3.3-2.2 5.5-5.2 5.5h-.3c-2.1 0-3.8-1-4.8-2.8L4.8 14a1.2 1.2 0 0 1 2.4-.3Z" />
-  </svg>
+const ToolGlyph = ({ tool, compact = false }) => (
+  <span className={`underscores-screencast-input-tool-glyph${compact ? " is-compact" : ""}`} aria-hidden="true">
+    <CanvasToolIcon tool={tool} />
+  </span>
 );
-
-const ToolGlyph = ({ tool, compact = false }) => tool === "hand"
-  ? <HandToolGlyph compact={compact} />
-  : <span className={`underscores-screencast-input-tool-glyph${compact ? " is-compact" : ""}`} aria-hidden="true">{screencastToolIcon(tool)}</span>;
 
 const KeyboardGlyph = ({ event, compact = false }) => (
   <svg
@@ -102,7 +98,7 @@ const eventDetail = event => {
   return String(event.detail);
 };
 
-export default function ScreencastInputOverlay({ events = [], activeTool = "selection", minimal = false, onClose }) {
+export default function ScreencastInputOverlay({ events = [], activeTool = "selection", minimal = false, onClose, onToggleMinimal }) {
   const [position, setPosition] = useState(readScreencastPosition);
   const [dragging, setDragging] = useState(false);
   const dragRef = useRef(null);
@@ -122,7 +118,7 @@ export default function ScreencastInputOverlay({ events = [], activeTool = "sele
     clamp();
     window.addEventListener("resize", clamp);
     return () => window.removeEventListener("resize", clamp);
-  }, []);
+  }, [minimal]);
 
   useEffect(() => {
     if (!dragging) return undefined;
@@ -150,7 +146,7 @@ export default function ScreencastInputOverlay({ events = [], activeTool = "sele
   }, [dragging]);
 
   const beginDrag = event => {
-    if (event.button !== 0 || event.target.closest("button")) return;
+    if (event.button !== 0 || event.target.closest("button,[data-screencast-toggle]")) return;
     event.preventDefault();
     dragRef.current = { clientX: event.clientX, clientY: event.clientY, x: positionRef.current.x, y: positionRef.current.y };
     setDragging(true);
@@ -169,9 +165,20 @@ export default function ScreencastInputOverlay({ events = [], activeTool = "sele
       data-screencast-input
     >
       <header className="underscores-screencast-input-header" onPointerDown={beginDrag} title="Drag to reposition screencast input">
-        <span className={`underscores-screencast-input-current-icon${currentEvent?.kind === "key" ? " is-key" : ""}`}>
+        <button
+          type="button"
+          className={`underscores-screencast-input-current-icon${currentEvent?.kind === "key" ? " is-key" : ""}`}
+          data-screencast-toggle
+          onDoubleClick={event => {
+            event.preventDefault();
+            event.stopPropagation();
+            onToggleMinimal?.();
+          }}
+          aria-label="Toggle screencast input detail mode"
+          title="Double-click to toggle compact mode"
+        >
           {currentEvent ? <EventGlyph event={currentEvent} activeTool={activeTool} /> : null}
-        </span>
+        </button>
         <span className="underscores-screencast-input-current">
           {currentEvent?.kind === "key"
             ? <>
@@ -191,7 +198,6 @@ export default function ScreencastInputOverlay({ events = [], activeTool = "sele
       {!minimal && visibleEvents.length > 0 && <div className="underscores-screencast-input-events" aria-live="polite">
         {visibleEvents.map(event => (
           <div className={`underscores-screencast-input-event is-${event.kind || "input"}`} key={event.id}>
-            <span className="underscores-screencast-input-event-icon"><EventGlyph event={event} activeTool={activeTool} compact /></span>
             <span className="underscores-screencast-input-event-label">{eventValue(event)}</span>
             {eventDetail(event) ? <code>{eventDetail(event)}</code> : null}
           </div>

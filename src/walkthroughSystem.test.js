@@ -22,7 +22,9 @@ test("walkthrough normalization rejects unknown documents and normalizes steps",
   assert.throws(() => parseWalkthrough({ type: "other", steps: [] }));
   const walkthrough = createWalkthrough({ title: "Tour", steps: [{ title: "Hello", cues: [{ type: "ui", action: "script", target: "#bad" }] }] });
   assert.equal(walkthrough.steps[0].advance.mode, "continue");
+  assert.equal(walkthrough.steps[0].showTitle, true);
   assert.equal(walkthrough.steps[0].cues[0].action, "click");
+  assert.equal(createWalkthrough({ steps: [{ title: "Hidden", showTitle: false }] }).steps[0].showTitle, false);
 });
 
 test("walkthrough revisions use optimistic concurrency", () => {

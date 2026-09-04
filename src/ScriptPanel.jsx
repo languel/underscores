@@ -21,7 +21,7 @@ export default function ScriptPanel({ type, onTypeChange, editorFontSize, childr
       >
         <span>Script type</span>
         <details className="script-panel-type-picker">
-          <summary aria-label={`Script type: ${displayLabel}`}>
+          <summary aria-label={`Script type: ${displayLabel}`} data-walkthrough-target="editor.scriptType">
             <span>{displayLabel}</span>
             <span className="script-panel-type-caret" aria-hidden="true">▼</span>
           </summary>

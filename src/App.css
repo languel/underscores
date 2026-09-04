@@ -3,6 +3,17 @@
   width: 100%;
   height: 100%;
 }
+
+/* Keyboard activation remains enabled, but the browser's default focus ring
+   is distracting on this pointer-first interface. */
+.underscores-shell button:focus,
+.underscores-shell button:focus-visible,
+.underscores-shell [role="button"]:focus,
+.underscores-shell [role="button"]:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* Guided Walkthrough */
 .walkthrough-overlay {
   position: fixed;
@@ -20,6 +31,7 @@
   top: 0;
   width: 0;
   height: 0;
+  z-index: 2;
   opacity: 0;
   transition: transform 620ms cubic-bezier(.22,.8,.22,1), opacity 180ms ease;
   will-change: transform;
@@ -103,15 +115,16 @@
   left: 50%;
   bottom: max(24px, env(safe-area-inset-bottom));
   width: min(560px, calc(100vw - 32px));
+  z-index: 1;
   transform: translateX(-50%);
   pointer-events: auto;
   padding: 14px 16px 12px;
   border: 1px solid color-mix(in srgb, var(--underscores-foreground, #ddd) 18%, transparent);
   border-radius: 10px;
   color: var(--underscores-foreground, var(--text-primary-color, #e7eaed));
-  background: color-mix(in srgb, var(--underscores-panel-bg, #171717) 94%, transparent);
-  box-shadow: 0 16px 44px rgba(0,0,0,.34), 0 0 24px color-mix(in srgb, var(--underscores-accent, #7aa2ff) 12%, transparent);
-  backdrop-filter: blur(16px);
+  background: color-mix(in srgb, var(--underscores-panel-bg, #171717) 86%, transparent);
+  box-shadow: 0 16px 44px rgba(0,0,0,.28), 0 0 24px color-mix(in srgb, var(--underscores-accent, #7aa2ff) 12%, transparent);
+  backdrop-filter: blur(10px);
 }
 .walkthrough-narration header,
 .walkthrough-narration footer { display: flex; align-items: center; gap: 7px; }

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { renderMarkdownWithMath } from "./livecodePresentation.js";
 
 const EMPTY_POINT = { x: -48, y: -48, visible: false };
+const POINTER_OFFSET_Y = 18;
 
 export default function WalkthroughOverlay({
   snapshot,
@@ -21,6 +22,7 @@ export default function WalkthroughOverlay({
   const [hint, setHint] = useState("");
   const [panelPosition, setPanelPosition] = useState(null);
   const dragRef = useRef(null);
+  const footerRef = useRef(null);
   const step = snapshot?.step;
   const active = snapshot && !["idle", "stopped"].includes(snapshot.status);
   const waiting = snapshot?.status === "waiting";
@@ -35,9 +37,12 @@ export default function WalkthroughOverlay({
     }
     let frame = 0;
     const update = () => {
-      const target = resolveTarget?.(step.focusTarget);
+      const focusedButton = document.activeElement?.closest?.(".walkthrough-narration footer button:not(:disabled)");
+      const target = focusedButton
+        ? { element: focusedButton }
+        : resolveTarget?.(step.focusTarget);
       const rect = target?.rect || target?.element?.getBoundingClientRect?.();
-      if (rect) setPoint({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, visible: true });
+      if (rect) setPoint({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 + POINTER_OFFSET_Y, visible: true });
       frame = requestAnimationFrame(update);
     };
     update();
@@ -45,6 +50,44 @@ export default function WalkthroughOverlay({
   }, [active, resolveTarget, step?.focusTarget]);
 
   useEffect(() => setHint(""), [step?.id]);
+
+  // Keep the tour usable without a pointer. When a step is ready for the
+  // learner, focus its primary action unless focus is already in the app (for
+  // example, the command palette or an editor). The glow follows whichever
+  // tour button is focused, so the visual guide and keyboard focus agree.
+  useEffect(() => {
+    if (!active || (!waiting && !completed)) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const footer = footerRef.current;
+      if (!footer || footer.contains(document.activeElement)) return;
+      const buttons = Array.from(footer.querySelectorAll("button:not(:disabled)"));
+      const primary = buttons.find(button => button.classList.contains("primary")) || buttons[0];
+      primary?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [active, completed, step?.id, snapshot?.stepIndex, waiting]);
+
+  const handleFooterKeyDown = event => {
+    const footer = footerRef.current;
+    if (!footer) return;
+    const buttons = Array.from(footer.querySelectorAll("button:not(:disabled)"));
+    const current = event.target?.closest?.("button") || document.activeElement;
+    const currentIndex = buttons.indexOf(current);
+    if (currentIndex < 0 || !buttons.length) return;
+    if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(event.key)) {
+      const direction = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : -1;
+      const next = buttons[(currentIndex + direction + buttons.length) % buttons.length];
+      event.preventDefault();
+      event.stopPropagation();
+      next?.focus();
+      return;
+    }
+    if ((event.key === "Enter" || event.code === "Space") && !event.metaKey && !event.ctrlKey && !event.altKey) {
+      event.preventDefault();
+      event.stopPropagation();
+      current.click();
+    }
+  };
 
   useEffect(() => () => { dragRef.current = null; }, []);
 
@@ -116,11 +159,11 @@ export default function WalkthroughOverlay({
           <span>{snapshot.walkthrough.title}</span>
           <span>{progress}</span>
         </header>
-        <h2>{step.title}</h2>
+        {step.showTitle !== false && <h2>{step.title}</h2>}
         {step.narration && <div className="walkthrough-narration-markdown livecode-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdownWithMath(step.narration) }} />}
         {snapshot.assertion && <p className={snapshot.assertion.passed ? "is-success" : "is-warning"}>{snapshot.assertion.reason}</p>}
         {hint && <p className="walkthrough-hint">{hint}</p>}
-        <footer>
+        <footer ref={footerRef} role="toolbar" aria-label="Walkthrough controls" onKeyDown={handleFooterKeyDown}>
           {completed ? <>
             <span className="walkthrough-complete-label">Walkthrough complete</span>
             <button type="button" className="primary" onClick={onStop} title="Finish the walkthrough and choose whether to keep or restore its results">Done</button>

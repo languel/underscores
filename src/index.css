@@ -1520,7 +1520,8 @@ body .excalidraw .underscores-collaboration-chat-composer textarea {
   left: 0;
   width: 100vw;
   height: 100vh;
-  background: rgba(0, 0, 0, 0.5);
+  background: transparent;
+  backdrop-filter: none;
   display: flex;
   justify-content: center;
   align-items: flex-start;
@@ -1674,18 +1675,21 @@ body .excalidraw .underscores-collaboration-chat-composer textarea {
 }
 
 .command-palette-header {
-  border-bottom: 1px solid var(--border-color);
-  padding: 4px;
+  border-bottom: none;
+  padding: 0;
 }
 
-#command-palette-input {
+#command-palette-input,
+#command-palette-input:focus,
+#command-palette-input:focus-visible {
   width: 100%;
-  border: none;
+  border: 0 !important;
   background: transparent;
   color: var(--color-primary);
   font-size: 16px;
   padding: 14px 16px;
-  outline: none;
+  outline: 0 !important;
+  box-shadow: none !important;
 }
 
 .command-palette-autocomplete {
@@ -4586,6 +4590,38 @@ body .excalidraw .sidebar {
   font-variant-ligatures: var(--livecode-font-variant-ligatures, normal);
 }
 
+.livecode-markdown.slideshow-active:focus,
+.livecode-markdown.slideshow-active:focus-visible {
+  outline: none;
+}
+
+.livecode-markdown-slideshow {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  min-height: 100%;
+  flex-direction: column;
+}
+
+.livecode-markdown-slide {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.livecode-markdown-slide > :first-child { margin-top: 0; }
+.livecode-markdown-slide > :last-child { margin-bottom: 0; }
+
+.livecode-markdown-slideshow-status {
+  align-self: flex-end;
+  margin-top: 12px;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--underscores-border, currentColor) 28%, transparent);
+  border-radius: 999px;
+  color: var(--color-secondary);
+  font: 10px/1 var(--font-mono, ui-monospace, monospace);
+  background: color-mix(in srgb, var(--underscores-panel-bg, currentColor) 22%, transparent);
+}
+
 .livecode-markdown > :first-child { margin-top: 0; }
 .livecode-markdown > :last-child { margin-bottom: 0; }
 .livecode-markdown :is(h1, h2, h3, h4, h5, h6) { font-family: var(--font-sans); }
@@ -6712,6 +6748,7 @@ a.iannix-flat-button {
   flex: 0 0 20px;
   font-size: 15px;
 }
+.underscores-screencast-input-current-icon > svg { display: block; width: 20px; height: 20px; }
 .underscores-screencast-input-current-icon.is-key { width: 20px; min-width: 20px; max-width: 20px; }
 .underscores-screencast-input-mouse-glyph { display: block; width: 18px; height: 20px; overflow: visible; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; opacity: .96; }
 .underscores-screencast-input-mouse-glyph .underscores-screencast-input-mouse-button-fill { fill: currentColor; opacity: .34; stroke: none; }
@@ -6721,13 +6758,14 @@ a.iannix-flat-button {
 .underscores-screencast-input-key-glyph path { stroke: currentColor; stroke-width: 1.15; stroke-linecap: round; stroke-linejoin: round; }
 .underscores-screencast-input-key-glyph.is-compact { width: 20px; min-width: 20px; height: 18px; padding: 0; }
 .underscores-screencast-input-tool-glyph { display: grid; width: 20px; height: 20px; place-items: center; color: var(--underscores-accent, var(--color-primary)); font-size: 18px; line-height: 1; font-variant-emoji: text; }
-.underscores-screencast-input-hand-glyph { width: 20px; height: 20px; stroke: currentColor; stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
-.underscores-screencast-input-hand-glyph.is-compact { width: 20px; height: 20px; }
+.underscores-screencast-input-tool-glyph > svg { display: block; width: 20px; height: 20px; overflow: visible; color: currentColor; }
+.underscores-screencast-input-tool-glyph.is-compact > svg { width: 20px; height: 20px; }
 .underscores-screencast-input-current { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; }
 .underscores-screencast-input-current-label { overflow: hidden; color: var(--underscores-foreground, var(--color-primary)); font-size: 15px; font-weight: 700; letter-spacing: .01em; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-current code { overflow: hidden; color: var(--underscores-muted, var(--color-secondary)); font: inherit; text-overflow: ellipsis; white-space: nowrap; }
 .underscores-screencast-input-active-tool { display: grid; width: 20px; height: 20px; margin-left: auto; place-items: center; color: var(--underscores-accent, var(--color-primary)); flex: 0 0 20px; }
 .underscores-screencast-input-active-tool > span:first-child { display: grid; width: 20px; height: 20px; place-items: center; font-size: 18px; line-height: 1; font-variant-emoji: text; }
+.underscores-screencast-input-active-tool > span:first-child > svg { display: block; width: 20px; height: 20px; }
 .underscores-screencast-input-header button {
   display: grid;
   width: 20px;
@@ -10446,9 +10484,74 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   line-height: 1.5;
 }
 
-.documentation-article-body p {
+.documentation-article-body > :first-child {
+  margin-top: 0;
+}
+
+.documentation-article-body > :last-child {
+  margin-bottom: 0;
+}
+
+.documentation-article-body p,
+.documentation-article-body ul,
+.documentation-article-body ol,
+.documentation-article-body blockquote {
   margin: 9px 0 0;
-  white-space: pre-wrap;
+}
+
+.documentation-article-body ul,
+.documentation-article-body ol {
+  padding-left: 1.35em;
+}
+
+.documentation-article-body li + li {
+  margin-top: 3px;
+}
+
+.documentation-article-body code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--color-primary);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+}
+
+.documentation-article-body table {
+  width: 100%;
+  margin: 12px 0 4px;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.92em;
+}
+
+.documentation-article-body th,
+.documentation-article-body td {
+  padding: 6px 7px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.documentation-article-body th {
+  color: var(--color-primary);
+  background: var(--underscores-input-bg, var(--input-bg-color));
+  font-weight: 700;
+}
+
+.documentation-article-body th:nth-child(1),
+.documentation-article-body td:nth-child(1) {
+  width: 21%;
+}
+
+.documentation-article-body th:nth-child(2),
+.documentation-article-body td:nth-child(2) {
+  width: 29%;
+}
+
+.documentation-article-body strong {
+  color: var(--color-primary);
 }
 
 .documentation-examples {

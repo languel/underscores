@@ -2,12 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import NumericInput from "./NumericInput.jsx";
 import { HELP_TOPICS } from "./helpTopics.js";
 import { DOCUMENTATION_SECTIONS, documentationTopicSection, filterDocumentationEntries, normalizeDocumentationFontSize } from "./documentationPanelModel.js";
+import { renderMarkdownWithMath } from "./livecodePresentation.js";
 
 const DOCUMENTATION_FONT_SIZE_KEY = "underscores_documentation_font_size";
 
 const topicEntries = HELP_TOPICS.map(topic => ({ ...topic, type: "reference", category: "Reference", section: documentationTopicSection(topic) }));
 
 const entryBody = entry => entry.body || entry.summary || "";
+
+const inlineMarkdown = value => renderMarkdownWithMath(value)
+  .replace(/^<p>/, "")
+  .replace(/<\/p>\s*$/, "");
+
+const DocumentationTitle = ({ value }) => (
+  <span dangerouslySetInnerHTML={{ __html: inlineMarkdown(value) }} />
+);
 
 const DOCUMENTATION_LIVECODE_KINDS = Object.freeze({
   "script-p5": "p5",
@@ -140,7 +149,7 @@ export default function DocumentationPanel({
           disabled={!gettingStarted?.walkthroughId}
           onClick={() => startEntry(gettingStarted)}
           title="Start the guided introduction to Underscores"
-        >Getting started</button>
+        >quick tour</button>
         <label className="documentation-font-size-control" title="Documentation font size">
           <span aria-hidden="true">Aa</span>
           <NumericInput
@@ -180,7 +189,7 @@ export default function DocumentationPanel({
                       className={selectedEntry?.id === entry.id ? "active" : ""}
                       aria-current={selectedEntry?.id === entry.id ? "page" : undefined}
                       onClick={() => selectEntry(entry.id)}
-                    >{entry.title}</button>
+                    ><DocumentationTitle value={entry.title} /></button>
                   ))}
                 </div>
               ))}
@@ -188,7 +197,7 @@ export default function DocumentationPanel({
           )}
           {patchSections.length > 0 && (
             <section>
-              <h3>Help patches</h3>
+              <h3>Help sketches</h3>
               {patchSections.map(group => (
                 <div className="documentation-toc-subsection" key={group.section}>
                   <h4>{group.section}</h4>
@@ -200,7 +209,7 @@ export default function DocumentationPanel({
                       aria-current={selectedEntry?.id === entry.id ? "page" : undefined}
                       onClick={() => selectEntry(entry.id)}
                     >
-                      <span>{entry.title}</span>
+                      <DocumentationTitle value={entry.title} />
                     </button>
                   ))}
                 </div>
@@ -214,11 +223,12 @@ export default function DocumentationPanel({
             <>
               <header>
                 <small>{selectedEntry.category}</small>
-                <h2>{selectedEntry.title}</h2>
+                <h2><DocumentationTitle value={selectedEntry.title} /></h2>
               </header>
-              <div className="documentation-article-body">
-                {entryBody(selectedEntry).split(/\n\n+/).map((paragraph, index) => <p key={`${selectedEntry.id}:${index}`}>{paragraph}</p>)}
-              </div>
+              <div
+                className="documentation-article-body documentation-markdown"
+                dangerouslySetInnerHTML={{ __html: renderMarkdownWithMath(entryBody(selectedEntry)) }}
+              />
               {selectedEntry.examples?.length > 0 && (
                 <section className="documentation-examples" aria-label="Examples">
                   <h3>Examples</h3>
@@ -235,7 +245,7 @@ export default function DocumentationPanel({
               {selectedEntry.type === "patch" && (
                 <footer className="documentation-actions">
                   {selectedEntry.walkthroughId && <button type="button" onClick={() => startEntry(selectedEntry)}>Start walkthrough</button>}
-                  {selectedEntry.insertCommand && <button type="button" onClick={() => onInsertHelp?.(selectedEntry)}>Insert patch</button>}
+                  {selectedEntry.insertCommand && <button type="button" onClick={() => onInsertHelp?.(selectedEntry)}>Insert sketch</button>}
                 </footer>
               )}
             </>

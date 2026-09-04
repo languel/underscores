@@ -14,7 +14,7 @@ export const getLivecodeBridgeHelp = kind => {
     [LIVECODE_KINDS.markdown]: "Markdown is a deterministic document renderer; it does not execute JavaScript and has no __ bridge. Use Markdown, inline/display LaTeX, and the Output/Code view modes.",
     [LIVECODE_KINDS.latex]: "LaTeX is a deterministic typesetting renderer; it does not execute JavaScript and has no __ bridge. Use TeX math delimiters and the Output/Code view modes.",
     [LIVECODE_KINDS.orca]: "Orca is a focused grid language rather than JavaScript, so __ is not available. Use its operators and the native MIDI/CC/pitch-bend routing instead.",
-    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments; Minimal / Twigl / Shadertoy mode also provides iResolution, iTime, iMouse, FC, r, t, and o.",
+    [LIVECODE_KINDS.shader]: "GLSL runs on the GPU and has no JavaScript __ bridge. Use the documented uniforms such as u_resolution, u_time, u_pointer, u_currentColor, and u_segments; Shadertoy / Twigl mode also provides iResolution, iTime, iMouse, FC, r, t, and o.",
     [LIVECODE_KINDS.tixy]: "Tixy evaluates one compact JavaScript expression as `(t, i, x, y) => value` over a 16×16 grid by default, with optional grid and palette @params. Use __.transport, __.pointer, __.params, __.events, and __.api for Underscores integration.",
   };
   return {
@@ -158,9 +158,9 @@ export const LIVECODE_HELP = Object.freeze({
     summary: "A WebGL 2 fragment shader rendered directly into this Livecode Node, with a compact Twigl/Shadertoy-style source mode.",
     points: Object.freeze([
       "Write a GLSL ES 3.00 fragment shader with void main(), in vec2 v_uv, and out vec4 outColor. The host supplies the full-screen vertex stage.",
-      "For code-golf and small Twigl/Shadertoy-style fragments, choose Source → Minimal / Twigl / Shadertoy. A body without main() is wrapped automatically; mainImage(out vec4, in vec2) is also accepted.",
-      "Minimal mode supplies classic Twigl values resolution (vec2), mouse (vec4 pixels/press state), time, frame, and backbuffer, plus the short aliases iResolution, iTime, iMouse, iFrame, FC, r, m, t, f, b, and o. Common Twigl helpers include hsv(), rotate2D(), rotate3D(), fsnoise(), PI, and PI2.",
-      "Choose Hello GLSL, Rainbow geometry, 2D shadows, Fluid brush, Inkwash, or Stokes flow from the Example menu, then edit the complete source.",
+      "For code-golf and small Twigl/Shadertoy-style fragments, choose Source → Shadertoy / Twigl. A body without main() is wrapped automatically; mainImage(out vec4, in vec2) is also accepted.",
+      "Shadertoy / Twigl mode supplies classic Twigl values resolution (vec2), mouse (vec4 pixels/press state), time, frame, and backbuffer, plus the short aliases iResolution, iTime, iMouse, iFrame, FC, r, m, t, f, b, and o. Common Twigl helpers include hsv(), rotate2D(), rotate3D(), fsnoise(), PI, and PI2.",
+      "Choose Hello GLSL, the Minimal / Twigl space raymarch, 2D shadows, Fluid brush, Inkwash, or Stokes flow from the Example menu, then edit the complete source.",
       "Common uniforms are u_resolution, u_time, u_transportTime, u_pointer, u_pointerDown, and u_currentColor. Geometry examples also receive u_segments and u_segmentCount.",
       "Layer, Opacity, Blend, and Background use the shared Livecode compositor, so the same non-destructive controls are available to other visual node kinds.",
       "Fluid brush and Inkwash are feedback shaders: u_previous is the prior frame, u_delta is frame time, and u_pointerDelta carries brush motion. Their authored emission boolean parameter makes the selected geometry source emit and stir dye or wet pigment; turn it off to keep pointer painting without geometry emission.",
@@ -168,7 +168,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Linked time follows Underscores's score; Free time advances independently. Compile errors appear in the Console's non-logged Live section while the previous working program keeps rendering.",
       "While editing, Cmd/Ctrl+Shift+Enter cycles Output → Code → Code Overlay → Code/Output. Cmd/Ctrl+Enter runs, Ctrl+. or Alt+. stops, and Ctrl+M then L toggles line numbers. Clicking in the source only places the editor cursor.",
     ]),
-    footer: "These ports preserve excalishader's four example ideas inside the editable Livecode model; the Fluid brush uses a compact ping-pong feedback pass.",
+    footer: "These examples keep the shader ideas inside the editable Livecode model; Fluid brush and Inkwash use compact ping-pong feedback passes.",
   }),
   [LIVECODE_KINDS.tixy]: Object.freeze({
     title: "Tixy quick reference",

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "katex/dist/katex.min.css";
 import { isLivecodeAutoUpdateEnabled, normalizeLivecodeNode, resolveLivecodeRuntimeNode } from "./livecodeNode.js";
-import { buildHtmlSandboxDocument, getMarkdownSourceBlocks, renderLatex, renderMarkdownWithMath, validateMarkdownSource } from "./livecodePresentation.js";
+import { buildHtmlSandboxDocument, getMarkdownSlides, getMarkdownSourceBlocks, renderLatex, renderMarkdownWithMath, validateMarkdownSource } from "./livecodePresentation.js";
 import { resumeSvgDocument, sanitizeSvgForInertRender, seekSvgDocument } from "./svgRuntime.js";
 
 const runtimeSnapshot = (element, node, scriptRuntimeRef) => {
@@ -60,11 +60,32 @@ function HtmlPresentation({ element, node, scriptRuntimeRef }) {
 function MarkdownPresentation({ node, runtimeNode = node, editable = false, documentEditing = false, onActivate, onPatch, onCommit }) {
   const displaySource = editable && documentEditing ? node.source : runtimeNode.source;
   const blocks = useMemo(() => getMarkdownSourceBlocks(displaySource), [displaySource]);
+  const slides = useMemo(() => getMarkdownSlides(displaySource), [displaySource]);
+  const slideshowActive = node.view === "slideshow" && !documentEditing;
+  const [slideIndex, setSlideIndex] = useState(0);
   const [editingBlock, setEditingBlock] = useState(null);
   const [error, setError] = useState("");
   const committingRef = useRef(false);
   const sourceRef = useRef(node.source);
   sourceRef.current = node.source;
+
+  useEffect(() => {
+    setSlideIndex(current => slideshowActive ? Math.min(current, Math.max(0, slides.length - 1)) : 0);
+  }, [displaySource, slideshowActive, slides.length]);
+
+  const handleSlideshowKeyDown = event => {
+    if (!slideshowActive) return;
+    const lastIndex = Math.max(0, slides.length - 1);
+    let nextIndex = null;
+    if (event.key === "ArrowLeft") nextIndex = Math.max(0, slideIndex - 1);
+    if (event.key === "ArrowRight") nextIndex = Math.min(lastIndex, slideIndex + 1);
+    if (event.key === "ArrowUp") nextIndex = 0;
+    if (event.key === "ArrowDown") nextIndex = lastIndex;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setSlideIndex(nextIndex);
+  };
 
   const beginEdit = index => {
     const currentSource = sourceRef.current;
@@ -135,7 +156,15 @@ function MarkdownPresentation({ node, runtimeNode = node, editable = false, docu
     setError("");
   };
   return <article
-    className={`livecode-markdown ${editable ? "editable" : ""} ${documentEditing ? "document-editing" : ""}`}
+    className={`livecode-markdown ${editable ? "editable" : ""} ${documentEditing ? "document-editing" : ""}${slideshowActive ? " slideshow-active" : ""}`}
+    role={slideshowActive ? "group" : undefined}
+    aria-label={slideshowActive ? `Markdown slideshow, slide ${slideIndex + 1} of ${slides.length}` : undefined}
+    data-markdown-slideshow={slideshowActive ? "true" : undefined}
+    tabIndex={slideshowActive ? 0 : undefined}
+    onPointerDown={event => {
+      if (slideshowActive) event.currentTarget.focus();
+    }}
+    onKeyDown={handleSlideshowKeyDown}
     onClick={event => {
       if (!editable || !documentEditing || event.target.closest?.("textarea")) return;
       const lastBlock = [...event.currentTarget.querySelectorAll(":scope > .livecode-markdown-block")].at(-1);
@@ -165,7 +194,10 @@ function MarkdownPresentation({ node, runtimeNode = node, editable = false, docu
       onActivate?.(event);
       beginEdit(Number(target.dataset.markdownBlock));
     }}
-  >{(editingBlock?.append ? [...blocks, {
+  >{slideshowActive ? <div className="livecode-markdown-slideshow">
+    <div className="livecode-markdown-slide" dangerouslySetInnerHTML={{ __html: renderMarkdownWithMath(slides[slideIndex] || "") }} />
+    <div className="livecode-markdown-slideshow-status" aria-live="polite">{slideIndex + 1} / {slides.length}</div>
+  </div> : (editingBlock?.append ? [...blocks, {
     start: displaySource.length,
     end: displaySource.length,
     source: "",

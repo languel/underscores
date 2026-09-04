@@ -39,6 +39,18 @@ test("context AI command defaults to Option-Shift-minus", () => {
   assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, event)?.id, "ai.context.prompt");
 });
 
+test("canvas help, bare slash, and greater-than shortcuts use the shared registry", () => {
+  assert.equal(DEFAULT_SHORTCUTS["documentation.shortcuts"], "Shift+Slash");
+  assert.equal(shortcutFromEvent({ code: "Slash", shiftKey: true }), "Shift+Slash");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, { code: "Slash", shiftKey: true })?.id, "documentation.shortcuts");
+
+  assert.equal(shortcutFromEvent({ code: "Slash" }), "Slash");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, { code: "Slash" })?.id, "command.palette.toggle");
+
+  assert.equal(shortcutFromEvent({ code: "Period", shiftKey: true }), "Shift+Period");
+  assert.equal(findShortcutAction(DEFAULT_SHORTCUTS, { code: "Period", shiftKey: true })?.id, "ai.context.prompt");
+});
+
 test("session recording defaults to Command-Option-R on macOS", () => {
   assert.equal(DEFAULT_SHORTCUTS["history.record.toggle"], "Mod+Alt+KeyR");
   const event = { code: "KeyR", metaKey: true, ctrlKey: false, altKey: true, shiftKey: false };

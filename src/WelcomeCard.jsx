@@ -42,7 +42,7 @@ export default function WelcomeCard({ onStartWalkthrough, onOpenDocumentation, o
           <button type="button" onClick={onDismiss}>Start blank</button>
         </footer>
         <p className="underscores-welcome-hint">
-          Everything stays on this machine. Reopen this from Documentation → Getting started, or run <code>/welcome</code>.
+          Everything stays on this machine. Reopen this from Documentation → quick tour, or run <code>/welcome</code>.
         </p>
       </div>
     </div>
