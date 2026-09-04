@@ -6766,7 +6766,7 @@ a.iannix-flat-button {
   --transport-accent: var(--underscores-accent, #6b7173);
   --transport-accent-soft: var(--underscores-highlight, rgba(143, 143, 143, 0.1));
   display: grid;
-  grid-template-columns: 92px 180px 90px 174px 108px 86px 82px 46px 124px minmax(80px, 1fr) 82px;
+  grid-template-columns: 92px 180px 90px 214px 108px 86px 82px 46px 124px minmax(80px, 1fr) 82px;
   grid-template-rows: var(--underscores-ui-control-height) minmax(0, 1fr);
   align-items: start;
   align-content: start;
@@ -6954,9 +6954,17 @@ a.iannix-flat-button {
 
 .iannix-transport-controls {
   display: grid;
-  grid-template-columns: repeat(7, 22px);
+  grid-template-columns: repeat(9, 22px);
   justify-content: center;
   gap: 2px;
+}
+
+.iannix-transport.step-recording-mode {
+  grid-template-columns: 92px 180px 90px 286px 108px 86px 82px 46px 124px minmax(80px, 1fr) 82px;
+}
+
+.iannix-transport.step-recording-mode .iannix-transport-controls {
+  grid-template-columns: repeat(12, 22px);
 }
 
 .iannix-transport-controls button {
@@ -7122,6 +7130,7 @@ a.iannix-flat-button {
   display: flex;
   align-items: center;
   min-width: 66px;
+  grid-column: span 3;
 }
 
 .arrangement-step-options .time-value-input-shell,
@@ -7710,7 +7719,11 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 @media (max-width: 980px) {
   .iannix-transport {
     position: relative;
-    grid-template-columns: 76px 138px 66px 166px 76px 60px 60px 32px 88px minmax(70px, 1fr);
+    grid-template-columns: 76px 138px 66px 214px 76px 60px 60px 32px 88px minmax(70px, 1fr);
+  }
+
+  .iannix-transport.step-recording-mode {
+    grid-template-columns: 76px 138px 66px 286px 76px 60px 60px 32px 88px minmax(70px, 1fr);
   }
 
   .iannix-transport-status {
@@ -7728,7 +7741,11 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
 @media (max-width: 720px) {
   .iannix-transport {
-    grid-template-columns: 62px minmax(112px, 1fr) 58px 166px 72px;
+    grid-template-columns: 62px minmax(112px, 1fr) 58px 214px 72px;
+  }
+
+  .iannix-transport.step-recording-mode {
+    grid-template-columns: 62px minmax(112px, 1fr) 58px 286px 72px;
   }
 
   .iannix-transport-signature,

@@ -27985,7 +27985,7 @@ function App() {
     };
     return (
       <div
-        className={`iannix-transport theme-${theme}`}
+        className={`iannix-transport theme-${theme}${arrangementState.recording.mode === "step" ? " step-recording-mode" : ""}`}
         role="region"
         aria-label="Timeline"
       >
