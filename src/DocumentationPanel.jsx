@@ -5,6 +5,9 @@ import { DOCUMENTATION_SECTIONS, documentationTopicSection, filterDocumentationE
 import { renderMarkdownWithMath } from "./livecodePresentation.js";
 
 const DOCUMENTATION_FONT_SIZE_KEY = "underscores_documentation_font_size";
+const PROJECT_SOURCE_URL = "https://github.com/languel/underscores/blob/main/SOURCE.md";
+const PROJECT_LICENSE_URL = "https://github.com/languel/underscores/blob/main/LICENSE";
+const PROJECT_NOTICES_URL = "https://github.com/languel/underscores/blob/main/THIRD_PARTY_NOTICES.md";
 
 const topicEntries = HELP_TOPICS.map(topic => ({ ...topic, type: "reference", category: "Reference", section: documentationTopicSection(topic) }));
 
@@ -252,6 +255,12 @@ export default function DocumentationPanel({
           )}
         </article>
       </div>
+      <footer className="documentation-panel-legal" aria-label="Project legal information">
+        <span>Underscores source and licensing</span>
+        <a href={PROJECT_SOURCE_URL} target="_blank" rel="noreferrer">Source</a>
+        <a href={PROJECT_LICENSE_URL} target="_blank" rel="noreferrer">License</a>
+        <a href={PROJECT_NOTICES_URL} target="_blank" rel="noreferrer">Third-party notices</a>
+      </footer>
     </div>
   );
 }

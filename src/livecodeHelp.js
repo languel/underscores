@@ -52,7 +52,7 @@ export const LIVECODE_HELP = Object.freeze({
       "Auto-update is off by default for Strudel: edit a draft, then press Cmd/Ctrl+Enter to evaluate it on the next safe beat. The Auto-update toggle can opt into compile-on-edit behavior for this node.",
       "Stopping, replacing, or hushing a node affects only that node's pattern; other active Strudel nodes remain scheduled.",
     ]),
-    footer: "Native Strudel is available locally, but public deployment remains blocked until Underscores completes its AGPL compliance gate.",
+    footer: "Native Strudel is distributed under AGPL-3.0-or-later. Open Documentation → Source and licensing for the corresponding source and third-party notices.",
   }),
   [LIVECODE_KINDS.p5]: Object.freeze({
     title: "p5 quick reference",

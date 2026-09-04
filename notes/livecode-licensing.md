@@ -1,20 +1,14 @@
 # Livecode licensing and deployment gate
 
-Last updated: 2026-07-29
+Last updated: 2026-09-04
 
 ## Strudel release gate
 
 Underscores directly bundles `@strudel/core`, `@strudel/mini`, `@strudel/tonal`, `@strudel/transpiler`, and `@strudel/webaudio`. Strudel is AGPL-3.0-or-later. Direct integration is therefore a release obligation, not just an attribution item. The exact package versions are pinned in `package.json` and `package-lock.json`.
 
-Local `npm run dev`, test, and build workflows remain available for development. Public deployment is blocked by `scripts/assert-strudel-release-gate.js`, which runs before the `deploy` script. It requires `UNDERSCORES_AGPL_COMPLIANCE=acknowledged` only after all of these conditions have been completed:
+The Strudel-enabled distribution now declares AGPL-3.0-or-later in `package.json`, provides the full license in `LICENSE`, and publishes the corresponding-source offer in [`SOURCE.md`](../SOURCE.md). `scripts/assert-strudel-release-gate.js` runs before `npm run deploy` and verifies those artifacts, the third-party inventory, and the release record. It does not use an acknowledgement variable for the public path.
 
-1. Underscores adopts an AGPL-compatible project license.
-2. The public release includes complete corresponding source and reproducible build instructions.
-3. Strudel's notices, version information, and any modification records are preserved.
-4. Every bundled font, audio/sample pack, and other asset is separately audited and recorded.
-5. Strudel sample packs stay opt-in until their individual licenses are recorded.
-
-The environment variable is an administrative acknowledgement after compliance; it is not a substitute for the obligations above. The [Strudel custom UI guide](https://strudel.cc/technical-manual/project-start/) is the upstream integration reference.
+Local `npm run dev`, test, and build workflows remain available for development. The [public release compliance record](release-compliance.md) is the checklist to review before each tagged deployment. The [Strudel custom UI guide](https://strudel.cc/technical-manual/project-start/) is the upstream integration reference.
 
 ## Internal demo profile
 
@@ -28,12 +22,13 @@ explicit opt-in:
 UNDERSCORES_AGPL_COMPLIANCE=acknowledged npm run deploy:demo
 ```
 
-This publishes the demo artifact through the existing `gh-pages` mechanism but
-does not weaken or satisfy the full public-release gate above. The exact
-spelling is `UNDERSCORES_AGPL_COMPLIANCE` (including the leading `U` and the
-final `S` in `UNDERSCORES`), with the literal value `acknowledged`. The gate
-also reads the value from an ignored local `.env` or `.env.local` file; copy
-`.env.example` to `.env`, set the value, and run `npm run deploy:demo`.
+This publishes the demo artifact through the existing `gh-pages` mechanism.
+The exact spelling is `UNDERSCORES_AGPL_COMPLIANCE` (including the leading `U`
+and the final `S` in `UNDERSCORES`), with the literal value `acknowledged`. The
+demo gate also reads the value from an ignored local `.env` or `.env.local`
+file; copy `.env.example` to `.env`, set the value, and run
+`npm run deploy:demo`. The public path remains `npm run deploy`, which runs the
+artifact checks above without this acknowledgement.
 
 ## Student/public-safe artifact
 
@@ -46,8 +41,8 @@ new Livecode nodes default to p5. `npm run deploy:students` runs the same check
 and publishes the resulting `dist` directory to `gh-pages`.
 
 This profile is a packaging control, not a legal conclusion. The full source
-tree and normal development build continue to carry the experimental
-dependencies and their notices so they can be audited and acknowledged later.
+tree and normal development build continue to carry the dependencies and their
+notices so the same pinned graph is available for every release and audit.
 
 ## Orca
 

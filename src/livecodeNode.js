@@ -48,7 +48,7 @@ export const LIVECODE_KIND_DEFINITIONS = Object.freeze({
     editorProfile: "strudel",
     defaultName: "Untitled Strudel",
     defaultSource: `// Ctrl/Cmd+Enter evaluates. Ctrl+. stops this node.\n$: note("c3 e3 g3 b3")\n  .s("sine").slow(2)\n  .color("<#ff8bd1 #8bd5ff #f5d76e #9df59d>")\n  ._pianoroll({ height: 72, fold: 1 })`,
-    summary: "Pattern livecoding node using the shared native scheduler. Public deployment stays release-gated until Strudel licensing compliance is complete.",
+    summary: "Pattern livecoding node using the shared native scheduler. Public deployment includes the AGPL source and notice offer verified by the release check.",
   }),
   [LIVECODE_KINDS.p5]: Object.freeze({
     label: "p5",

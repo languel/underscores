@@ -128,8 +128,8 @@ samples, pixels, or device/socket state. See
   CSS, inline underscores visualizers, and default-on node-frame public visualizers using the shared
   draw loop. Native Orca grids with Underscores transport/Mixer integration still need a dedicated
   follow-up stabilization pass. HTML remains sandboxed and needs its own browser acceptance pass.
-  Strudel public deployment remains intentionally blocked pending AGPL compliance; see
-  [Livecode licensing](livecode-licensing.md).
+  Strudel public deployment now runs the AGPL artifact checks documented in
+  [Livecode licensing](livecode-licensing.md) and [the public release compliance record](release-compliance.md).
 - Livecode typography now includes the five Monaspace families (Argon, Krypton, Neon, Radon, and
   Xenon) with Latin weight faces, contextual/common ligatures, and a persisted per-node Ligatures
   toggle that enables Monaspace's `ss01`–`ss10` operator sets. A local `Symbols Nerd Font Mono`
@@ -139,8 +139,9 @@ samples, pixels, or device/socket state. See
 
 This release gate must pass `npm test`, `npm run build`, `npm run build:single`, `git diff --check`,
 focused browser checks for concurrent Livecode Nodes, code/dock source ownership, HTML sandboxing,
-and Orca keyboard containment. `npm run release:check` must fail until the Strudel release gate is
-actually satisfied; an explicit acknowledgement only validates the gate's completed-compliance path.
+and Orca keyboard containment. `npm run release:check` verifies the Strudel license, source offer,
+notices, and release record before a public deployment; the explicit acknowledgement is reserved
+for the controlled internal demo path.
 
 The 2026-08-01 integrated Livecode, media, baking, and performance checkpoint completed 462 automated tests and a
 production build. Active-harness checks confirmed that edits remain drafts while the last evaluated

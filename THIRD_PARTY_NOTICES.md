@@ -1,10 +1,11 @@
 # Third-party notices
 
-Underscores' original source is released under the MIT License in [`LICENSE`](LICENSE).
-This file records third-party code, libraries, fonts, and reference material used by the
-application. Those components remain under their own licenses; the MIT license for Underscores
-does not relicense them. The complete dependency graph and exact versions are recorded in
-[`package-lock.json`](package-lock.json).
+The Strudel-enabled Underscores distribution is released under the GNU Affero General Public
+License, version 3 or later, in [`LICENSE`](LICENSE). Separately identified Underscores-authored
+components retain the MIT terms in [`LICENSE-MIT`](LICENSE-MIT). This file records third-party
+code, libraries, fonts, and reference material used by the application. Those components remain
+under their own licenses; the application license does not relicense them. The complete
+dependency graph and exact versions are recorded in [`package-lock.json`](package-lock.json).
 
 ## Adapted or informed source
 
@@ -81,10 +82,14 @@ Their package notices and license text must remain available in source and relea
 
 ### AGPL-3.0-or-later
 
-The native Strudel packages (`@strudel/codemirror`, `core`, `draw`, `mini`, `mondo`, `soundfonts`,
-`tonal`, `transpiler`, `webaudio`, and `xen`) and their Strudel runtime dependencies are AGPL-3.0-or-later.
-The Strudel release gate in `scripts/assert-strudel-release-gate.js` documents the corresponding
-source-offer and attribution obligations. A public deployment must not bypass that gate.
+The native Strudel packages (`@strudel/codemirror`, `@strudel/core`, `@strudel/draw`,
+`@strudel/mini`, `@strudel/mondo`, `@strudel/soundfonts`, `@strudel/tonal`,
+`@strudel/transpiler`, `@strudel/webaudio`, and `@strudel/xen`) and their Strudel runtime
+dependencies are AGPL-3.0-or-later.
+The public deployment check in `scripts/assert-strudel-release-gate.js` verifies the corresponding
+source offer, license metadata, and attribution artifacts before publishing. Optional sample maps
+are fetched at runtime from their documented upstream repositories; they are not relicensed as
+Underscores assets.
 
 ### SIL Open Font License 1.1
 

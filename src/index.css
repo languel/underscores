@@ -10313,7 +10313,7 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
 
 .documentation-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 8px;
   height: 100%;
   min-height: 0;
@@ -10380,6 +10380,31 @@ body .excalidraw .iannix-timeline-playhead-hitbox:focus-visible {
   border: 1px solid var(--border-color);
   border-radius: 5px;
   overflow: hidden;
+}
+
+.documentation-panel-legal {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding-top: 7px;
+  color: var(--color-secondary);
+  font-size: 0.82em;
+}
+
+.documentation-panel-legal span {
+  margin-right: auto;
+}
+
+.documentation-panel-legal a {
+  color: var(--color-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.documentation-panel-legal a:hover,
+.documentation-panel-legal a:focus-visible {
+  color: var(--color-primary);
 }
 
 .documentation-panel.horizontal .documentation-panel-main {

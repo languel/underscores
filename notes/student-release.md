@@ -19,8 +19,9 @@ optional Monaspace stylesheet to an empty stylesheet. The post-build check
 fails if Strudel package markers or Monaspace font assets appear in `dist`.
 
 `deploy:students` publishes that checked `dist` directory to the `gh-pages`
-branch. The normal `npm run deploy` command remains protected by the Strudel
-AGPL release gate and is intentionally not used for the student artifact.
+branch. The normal `npm run deploy` command publishes the full Strudel-enabled
+AGPL distribution after running the corresponding-source and notice checks;
+it is intentionally not used for the student artifact.
 
 ## What students receive
 
@@ -36,7 +37,6 @@ remain available and their OFL notices stay in the source release.
 The normal development/build profile still installs and tests native Strudel,
 the Monaspace font families, and their source adapters. Their versions,
 notices, and the public-release requirements are recorded in
-[`notes/livecode-licensing.md`](./livecode-licensing.md) and
-[`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). Once the project has a
-compatible licensing decision and complete corresponding-source materials,
-the full deploy gate can be acknowledged explicitly.
+[`notes/livecode-licensing.md`](./livecode-licensing.md), [`SOURCE.md`](../SOURCE.md),
+and [`THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md). The full deploy path
+verifies those artifacts on every release.
