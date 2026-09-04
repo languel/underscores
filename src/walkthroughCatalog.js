@@ -6,8 +6,8 @@ sin(t * .75 + hypot(x - 7.5, y - 7.5)) * .72`;
 const P5_SOURCE = getP5Example("pollock-splatter")?.source || "";
 
 // Both tour shaders derive their motion from the 174 BPM score clock. The
-// underlooped Strudel demo runs at the same tempo, while remaining on its own
-// audio clock so stopping Timeline does not silence the tour soundtrack.
+// onboarding variant of underlooped is linked to that same clock so the
+// soundtrack and visual nodes begin together after Timeline starts.
 const QUARKSOUP_TOUR_SOURCE = `// Mouse-reactive quark soup, pulsing on the 174 BPM score beat.
 float b=t*(174./60.);float pulse=.84+.16*pow(.5+.5*cos(6.283185*b),8.);vec3 p;vec2 q=(m.xy/r-.5)*2.;for(float i,z,d;i++<96.;o+=vec4(.64,.28,.10,0.)/max(d,.002))p=z*normalize(vec3(FC.xy-.5*r,r.y)),p.xy*=mat2(cos(z*.08+vec4(0,33,11,0))),p.xy+=q*(.18+.24*sin(z*.17+b*.062)),p.z+=b*.155,z+=d=length(cos(p*.62)+sin(p.yzx*1.7+b*.062))/7.;o=tanh(o/2.8e3)*pulse;o.a=1.;`;
 
@@ -117,18 +117,21 @@ export const ONBOARDING_WALKTHROUGH = createWalkthrough({
     {
       id: "palette",
       title: "A minimal interface, on purpose",
-      narration: "Press **/** to open the command palette; **Command/Ctrl+/** works too. Search by name or type a slash command, then press Enter.\n\nThe canvas stays minimal for performance. Panels appear only when you ask for them: use commands such as `/outliner`, `/properties`, `/assistant`, and `/code`, or double-click a dock edge to reveal or collapse it.",
-      info: "Shortcuts: / or Command/Ctrl+/ opens the palette. Command/Ctrl+B, Command/Ctrl+Option+B, and Command/Ctrl+Shift+B toggle the left, right, and bottom docks. Option/Alt+Shift+- opens the contextual command field with the current selection.",
+      narration: "Press **/** to open the command palette; **Command/Ctrl+/** works too. Search by name or type a slash command, then press Enter. The screencast overlay is on so the tour's keyboard and pointer events stay visible.\n\nThe canvas stays minimal for performance. Panels appear only when you ask for them: use commands such as `/outliner`, `/properties`, `/assistant`, and `/code`, or double-click a dock edge to reveal or collapse it.",
+      info: "Shortcuts: / or Command/Ctrl+/ opens the palette; /screencast toggles the event overlay. Command/Ctrl+B, Command/Ctrl+Option+B, and Command/Ctrl+Shift+B toggle the left, right, and bottom docks. Option/Alt+Shift+- opens the contextual command field with the current selection.",
       focusTarget: "app.commandPalette",
-      cues: [{ type: "command", commandId: "commandPalette.open", at: 0.45 }],
+      cues: [
+        { type: "command", commandId: "settings.board.update", args: { state: { screencastInputVisible: true } }, at: 0.15 },
+        { type: "command", commandId: "commandPalette.open", at: 0.45 },
+      ],
       advance: { mode: "continue" },
       hint: "The palette field is the one that just appeared near the top of the window. Continue closes it again.",
     },
     {
       id: "panels",
       title: "One sketch, many views",
-      narration: "Watch the same sketch appear through **Outliner**, **Properties**, and the **AI assistant**. Each panel lingers long enough to orient you, and the tour ends in **Code**. Panels are views of shared objects—not separate documents.\n\nAt the end of this card, allow the audio cue to start the editable **underlooped** Strudel song as our backdrop.",
-      info: "Panel shortcuts: /outliner, /properties, /assistant, and /code. The audio cue requires a real learner gesture; choose Allow, and click the canvas once if the browser is still silent.",
+      narration: "Watch the same sketch appear through **Outliner**, **Properties**, and the **AI assistant**. Each panel lingers long enough to orient you, and the tour ends in **Code**. Panels are views of shared objects—not separate documents.\n\nThe next Timeline card starts the editable **underlooped** Strudel song as our backdrop, after the shared clock is ready.",
+      info: "Panel shortcuts: /outliner, /properties, /assistant, and /code. Audio starts from the Timeline card after a real learner gesture; choose Allow, and click the canvas once if the browser is still silent.",
       focusTarget: "panel.script",
       cues: [
         { type: "command", commandId: "commandPalette.close", at: 0 },
@@ -136,10 +139,9 @@ export const ONBOARDING_WALKTHROUGH = createWalkthrough({
         { type: "command", commandId: "panel.open", args: { panelId: "properties" }, at: 2.4 },
         { type: "command", commandId: "panel.open", args: { panelId: "chat" }, at: 4.3 },
         { type: "command", commandId: "panel.open", args: { panelId: "script" }, at: 6.2 },
-        { type: "command", commandId: "strudel.demo.underlooped", at: 8.1 },
       ],
       advance: { mode: "continue" },
-      hint: "Choose Allow for the underlooped cue. The Code panel is the last panel opened before the music starts.",
+      hint: "The Code panel is the last panel opened on this card. Continue to Timeline to start the backdrop.",
     },
     {
       id: "documentation",
@@ -156,13 +158,16 @@ export const ONBOARDING_WALKTHROUGH = createWalkthrough({
     {
       id: "timeline",
       title: "Timeline is the shared clock",
-      narration: "This is the actual **Timeline**: frames, timecode, or bars and beats, with tempo, meter, loops, and arrangement lanes. It now runs at **174 BPM**, matching underlooped, so linked visual nodes can move with the song.",
-      info: "Shortcuts: Space plays or pauses; Shift+Left and Shift+Right jump to the timeline or loop start and end; /timeline or /transport shows this panel.",
+      narration: "This is the actual **Timeline**: frames, timecode, or bars and beats, with tempo, meter, loops, and arrangement lanes. First we turn its loop off, rewind to zero, and explicitly press **Play**. Then the editable **underlooped** Strudel song starts against this shared 174 BPM clock, so linked visual nodes can move with it.",
+      info: "Shortcuts: Space plays or pauses; Shift+Left and Shift+Right jump to the timeline or loop start and end; /timeline or /transport shows this panel. Audio starts here after a real learner gesture.",
       focusTarget: "panel.transport",
       cues: [
         { type: "command", commandId: "panel.close", args: { panelId: "info" }, at: 0 },
         { type: "command", commandId: "panel.open", args: { panelId: "transport" }, at: 0.25 },
-        { type: "command", commandId: "transport.update", args: { state: { tempo: 174, displayMode: "beats", playing: true } }, at: 0.8 },
+        { type: "command", commandId: "transport.update", args: { state: { tempo: 174, displayMode: "beats", loop: { enabled: false }, playing: false } }, at: 0.8 },
+        { type: "command", commandId: "transport.seek", args: { seconds: 0 }, at: 1.0 },
+        { type: "command", commandId: "transport.update", args: { state: { playing: true } }, at: 1.2 },
+        { type: "command", commandId: "strudel.demo.underlooped", args: { transportMode: "linked", syncTransport: true }, at: 1.55 },
       ],
       advance: { mode: "continue" },
     },

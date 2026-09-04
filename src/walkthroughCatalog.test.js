@@ -82,11 +82,23 @@ test("onboarding stages the demo in the requested order", () => {
     "finish",
   ]);
   const panels = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "panels");
-  assert.ok(panels.cues.some(cue => cue.commandId === "strudel.demo.underlooped"));
-  assert.match(panels.narration, /allow/i);
+  assert.equal(panels.cues.some(cue => cue.commandId === "strudel.demo.underlooped"), false);
+  assert.match(panels.narration, /Timeline/i);
   const timeline = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "timeline");
   assert.equal(timeline.focusTarget, "panel.transport");
-  assert.ok(timeline.cues.some(cue => cue.commandId === "transport.update" && cue.args.state.tempo === 174));
+  assert.ok(timeline.cues.some(cue => cue.commandId === "transport.update" && cue.args.state.tempo === 174 && cue.args.state.loop.enabled === false));
+  assert.ok(timeline.cues.some(cue => cue.commandId === "transport.seek" && cue.args.seconds === 0));
+  assert.ok(timeline.cues.some(cue => cue.commandId === "transport.update" && cue.args.state.playing === true));
+  const underlooped = timeline.cues.find(cue => cue.commandId === "strudel.demo.underlooped");
+  assert.equal(underlooped.args.transportMode, "linked");
+  assert.equal(underlooped.args.syncTransport, true);
+});
+
+test("onboarding activates Screencast input before opening the palette", () => {
+  const palette = ONBOARDING_WALKTHROUGH.steps.find(step => step.id === "palette");
+  const screencast = palette.cues.find(cue => cue.commandId === "settings.board.update");
+  assert.deepEqual(screencast.args, { state: { screencastInputVisible: true } });
+  assert.ok(screencast.at < palette.cues.find(cue => cue.commandId === "commandPalette.open").at);
 });
 
 test("onboarding types Tixy before selecting Pollock and uses two tempo-linked shaders", () => {

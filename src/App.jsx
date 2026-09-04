@@ -15414,14 +15414,14 @@ function App() {
       view: "preview",
       runtimeSettings: { autoUpdate: false },
     }) },
-    { id: "strudel.demo.underlooped", name: "Create underlooped Strudel Demo /underlooped", aliases: ["/underlooped", "underlooped", "Underlooped demo"], category: "Livecode", action: () => createLivecodeCanvasNode({
+    { id: "strudel.demo.underlooped", name: "Create underlooped Strudel Demo /underlooped", aliases: ["/underlooped", "underlooped", "Underlooped demo"], category: "Livecode", args: { transportMode: "linked|free?", syncTransport: "boolean?" }, action: (_api, args = {}) => createLivecodeCanvasNode({
       kind: LIVECODE_KINDS.strudel,
       name: "underlooped",
       source: UNDERLOOPED_STRUDEL_SOURCE,
       running: true,
-      transportMode: "free",
+      transportMode: args.transportMode === "linked" ? "linked" : "free",
       view: "preview",
-      runtimeSettings: { autoUpdate: false },
+      runtimeSettings: { autoUpdate: false, ...(args.syncTransport === true ? { syncTransport: true } : {}) },
     }) },
     { id: "livecode.node.create.p5", name: "Create p5 Livecode Node /live p5", aliases: ["/live p5", "/code p5"], category: "Livecode", action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.p5 }) },
     { id: "livecode.node.create.three", name: "Create Three.js Livecode Node /live three", aliases: ["/live three", "/live threejs", "/code three", "/three"], category: "Livecode", ai: { expose: true, description: "Create an independent bundled Three.js Livecode Node. The source receives THREE, scene, camera, renderer, tick(callback), onDispose(callback), loadModel(url, options?), and __. loadModel supports OBJ, glTF/GLB, USD/USDZ, and ZIP archives containing an OBJ, returning scene and animation clips. The Example menu includes Unit cube, Lit torus knot, Orbiting spheres, Parameter dancing lights, glTF model viewer, Animated glTF blendshape, a CORS-friendly Three.js Walt Head OBJ, MediaPipe Unicursal ribbon (3D), and MediaPipe Schlemmer costume (3D); the last two read Holistic landmarks and fall back to deterministic geometry when no frame is available. The node surface supports local orbit, pan, zoom, and keyboard camera controls." }, action: () => createLivecodeCanvasNode({ kind: LIVECODE_KINDS.three }) },
